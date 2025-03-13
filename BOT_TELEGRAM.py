@@ -7,12 +7,17 @@ import requests
 import warnings
 import xml.etree.ElementTree as ET
 
+from openpyxl import Workbook
 from telegram import Update
 from openpyxl import Workbook
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+import xml.etree.ElementTree as ET
+from openpyxl import Workbook
+from telegram import Update
+import zipfile
 
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
