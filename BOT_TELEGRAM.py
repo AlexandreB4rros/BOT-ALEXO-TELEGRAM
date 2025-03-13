@@ -1,19 +1,15 @@
 import os
 import json
+import zipfile
 import logging
 import aiohttp
 import requests
+import warnings
 import xml.etree.ElementTree as ET
-from openpyxl import Workbook
 
 from telegram import Update
+from openpyxl import Workbook
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-
-import xml.etree.ElementTree as ET
-from openpyxl import Workbook
-from telegram import Update
-import zipfile
-import os
 
 
 __version__ = "0.1.3"
@@ -29,6 +25,7 @@ BOT_TOKEN = "7820581372:AAH8OLVNA6KDkFqIGTDJx2IEm_HDOH_bRcs"
 
 TELEGRAM_GROUP_ID = "-1002292627707"
 
+warnings.filterwarnings("ignore", category=UserWarning)
 
 class IgnoreAttributeErrorFilter(logging.Filter):
     def filter(self, record):
