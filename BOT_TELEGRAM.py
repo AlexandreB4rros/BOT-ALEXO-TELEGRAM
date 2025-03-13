@@ -20,7 +20,7 @@ import zipfile
 import os
 
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
