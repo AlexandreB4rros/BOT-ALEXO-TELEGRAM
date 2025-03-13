@@ -9,12 +9,7 @@ import xml.etree.ElementTree as ET
 
 from openpyxl import Workbook
 from telegram import Update
-from openpyxl import Workbook
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import xml.etree.ElementTree as ET
-from openpyxl import Workbook
-from telegram import Update
-import zipfile
 
 
 __version__ = "0.1.4"
