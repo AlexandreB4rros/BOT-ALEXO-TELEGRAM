@@ -153,3 +153,6 @@ telegram.error.TimedOut: Timed out
 2025-03-14 08:48:15,298 - INFO - Iniciando o BOT-ALEXO Versão:0.1.4
 2025-03-14 08:48:16,654 - INFO - Bot está rodando...
 2025-03-14 08:48:35,433 - INFO - Arquivo Recebido - Arquivo:SALTINHO V2.kml - Usuário:Alexandre Barros
+2025-03-14 08:52:27,324 - INFO - Iniciando o BOT-ALEXO Versão:0.1.4
+2025-03-14 08:52:28,744 - INFO - Bot está rodando...
+2025-03-14 08:52:44,467 - INFO - Arquivo Recebido - Arquivo:SALTINHO V2.kml - Usuário:Alexandre Barros
