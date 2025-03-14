@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import zipfile
 import logging
 import aiohttp
@@ -21,7 +22,7 @@ FileName = "WebHook.json"
 # #BOT-ALEXO "7820581372:AAH8OLVNA6KDkFqIGTDJx2IEm_HDOH_bRcs" #ALEXO
 # #DKT_TESTE "7829967937:AAG7ZajDn7lYbeIllyQJKYa1V5q8AbFDeMk" #DKT_TESTE
 
-BOT_TOKEN = "7820581372:AAH8OLVNA6KDkFqIGTDJx2IEm_HDOH_bRcs"
+BOT_TOKEN = "7829967937:AAG7ZajDn7lYbeIllyQJKYa1V5q8AbFDeMk"
 
 TELEGRAM_GROUP_ID = "-1002292627707"
 
@@ -89,6 +90,15 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 SPLITTERS_VALIDOS = {"1/16", "1/8", "1/4"}
+
+def ExcluirArquivos(arquivo):
+    # Função que exclui todos os tipos de arquivos
+    if os.path.exists(arquivo):
+        os.remove(arquivo)
+        logger.info(f"Arquivo '{arquivo}' foi removido com sucesso.")
+        
+    else:
+        logger.info(f"Erro ao excluir o '{arquivo}', o arquivo não encontrado na raiz.")
 
 def kml_to_xlsx(kml_file, xlsx_file):
     tree = ET.parse(kml_file)
@@ -938,6 +948,14 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(text=Mensagem_User)
                 await context.bot.send_document(chat_id=chat_id, document=open(xlsx_file, 'rb'))
 
+                time.sleep(3)
+                arquivo_kml = f"{file_name}"
+                ExcluirArquivos(arquivo_kml)
+
+                time.sleep(3)
+                arquivo_xlsx = f"{xlsx_file}"
+                ExcluirArquivos(arquivo_xlsx)
+
             elif file_extension == 'kmz':
                 extract_to = ""
                 kml_file = extract_kml_from_kmz(file_path, extract_to)
@@ -949,6 +967,15 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     Mensagem_User = f"📄 - Conversor KMZ para XLSX: \n\nArquivo: {file_name}\nFomarto do arquivo: {Arq}\nConvertido para: XLSX\nNovo Arquivo: {xlsx_file}"
                     await update.message.reply_text(text=Mensagem_User)
                     await context.bot.send_document(chat_id=chat_id, document=open(xlsx_file, 'rb'))
+                    
+                    time.sleep(3)
+                    arquivo_kml = f"{file_name}"
+                    ExcluirArquivos(arquivo_kml)
+
+                    time.sleep(3)
+                    arquivo_xlsx = f"{xlsx_file}"
+                    ExcluirArquivos(arquivo_xlsx)
+
                 else:
                     await update.message.reply_text("❌ Não foi possível extrair o arquivo KML do arquivo KMZ.")
 
