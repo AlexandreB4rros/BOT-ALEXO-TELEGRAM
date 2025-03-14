@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import time
 import zipfile
@@ -51,7 +52,7 @@ __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
 FileName = "WebHook.json"
-
+sys.tracebacklimit = 0
 
 DBUG = 2 ### 1 para ALEXO, 2 PARA TESTE
 
