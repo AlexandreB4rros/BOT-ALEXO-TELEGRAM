@@ -8,23 +8,15 @@ import requests
 import warnings
 import xml.etree.ElementTree as ET
 
+from dotenv import load_dotenv
+from pathlib import Path
 from openpyxl import Workbook
 from telegram import Update
+from Scripts_Alexo import selecionar_token
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-
-__version__ = "0.1.4"
-__author__ = "Alexandre B, J. Ayrton"
-__credits__ = "Anderson, Josimar"
-
-FileName = "WebHook.json"
-
-# #BOT-ALEXO "7820581372:AAH8OLVNA6KDkFqIGTDJx2IEm_HDOH_bRcs" #ALEXO
-# #DKT_TESTE "7829967937:AAG7ZajDn7lYbeIllyQJKYa1V5q8AbFDeMk" #DKT_TESTE
-
-BOT_TOKEN = "7829967937:AAG7ZajDn7lYbeIllyQJKYa1V5q8AbFDeMk"
-
-TELEGRAM_GROUP_ID = "-1002292627707"
+caminho_env = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=caminho_env)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -60,6 +52,25 @@ console_handler.addFilter(IgnoreAttributeErrorFilter())
 
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
+
+__version__ = "1.0"
+__author__ = "Alexandre B, J. Ayrton"
+__credits__ = "Anderson, Josimar"
+
+FileName = "WebHook.json"
+
+
+DBUG = 2 ### 1 para ALEXO, 2 PARA TESTE
+
+
+try:
+    BOT_TOKEN = selecionar_token(DBUG)
+except ValueError as e:
+
+    logger.error(f"Erro: {e}")
+
+
+TELEGRAM_GROUP_ID = "-1002292627707"
 
 ErroE101 = "❌ Atenção, excesso de argumentos. Verifique o comando informado e tente novamente!"
 ErroP101 = "❌ Atenção, 'POP' não informado!"
@@ -994,8 +1005,6 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
-    logger.info(f"Iniciando o BOT-ALEXO Versão:{__version__}")
-
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("Id", id))

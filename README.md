@@ -1,1 +1,1 @@
-Comentários sobre o Bot Alexo
+ATENÇÃO - na verção 1.0 usar o comando "pip install ." para instalar a biblioteca especificada da Automação!
