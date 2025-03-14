@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from openpyxl import Workbook
 from telegram import Update
-from Scripts_Alexo import selecionar_token
+from Scripts_Alexo import selecionar_token, __version__
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 caminho_env = Path(__file__).parent / ".env"
@@ -46,7 +46,7 @@ console_handler.addFilter(IgnoreAttributeErrorFilter())
 
 logger.addHandler(console_handler)
 
-__version__ = "1.0"
+
 __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
@@ -1004,11 +1004,11 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("CWH", CWH))
     app.add_handler(CommandHandler("Info", Info))
     app.add_handler(CommandHandler("Input", input))
-    app.add_handler(CommandHandler("Convert", convert))
-    app.add_handler(CommandHandler("Insert", insert))
     app.add_handler(CommandHandler("Ajuda", ajuda))
     app.add_handler(CommandHandler("Checar", checar))
+    app.add_handler(CommandHandler("Insert", insert))
     app.add_handler(CommandHandler("NovaCTO", novaCTO))
+    app.add_handler(CommandHandler("Convert", convert))
     app.add_handler(CommandHandler("AjudaAdm", AjudaAdm))
     app.add_handler(CommandHandler("ListarIDs", listarIDs))
     app.add_handler(CommandHandler("Atividades", atividades))
@@ -1020,6 +1020,6 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Document.ALL, handle_arquivo))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     
-    logger.info("Bot está rodando...")
+    logger.info("Automação está rodando...")
     app.run_polling()
 
