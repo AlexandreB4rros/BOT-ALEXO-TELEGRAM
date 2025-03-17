@@ -2,6 +2,7 @@ README.md
 setup.py
 Scripts_Alexo/__init__.py
 Scripts_Alexo/selecionar_token.py
+Scripts_Alexo/version.py
 Scripts_Alexo.egg-info/PKG-INFO
 Scripts_Alexo.egg-info/SOURCES.txt
 Scripts_Alexo.egg-info/dependency_links.txt

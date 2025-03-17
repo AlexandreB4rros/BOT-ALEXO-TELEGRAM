@@ -54,7 +54,7 @@ __credits__ = "Anderson, Josimar"
 FileName = "WebHook.json"
 sys.tracebacklimit = 0
 
-DBUG = 2 ### 1 para ALEXO, 2 PARA TESTE
+DBUG = 1 ### 1 para ALEXO, 2 PARA TESTE
 
 
 try:
