@@ -1,5 +1,9 @@
 Bem vindo ao projeto do BOT ALEXO...
 
+Criadores: 
+    Alexandre Barros (Python)
+    Joseph Ayrthon (Java Script)
+
 SUMÁRIO:
     De forma resumida e objetiva, esse projeto foi criado para suprir a demanda de atualização de planilha do google com a interação do App Script e o Telegram. 
 
