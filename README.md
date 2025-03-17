@@ -1,7 +1,7 @@
 Bem vindo ao projeto do BOT ALEXO...
 
 Criadores: 
-    Alexandre Barros (Python)
+    Alexandre Barros (Python),
     Joseph Ayrthon (Java Script)
 
 SUMÁRIO:
