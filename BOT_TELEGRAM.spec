@@ -5,7 +5,7 @@ a = Analysis(
     ['BOT_TELEGRAM.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('.env', '.')],
     hiddenimports=['telegram', 'telegram.ext'],
     hookspath=[],
     hooksconfig={},

@@ -1,3 +1,17 @@
+<<<<<<< HEAD
+('D:\\PythonProject\\Code\\BOT ALEXO\\build\\BOT_TELEGRAM\\PYZ-00.pyz',
+ [('Scripts_Alexo',
+   'D:\\PythonProject\\Code\\BOT ALEXO\\Scripts_Alexo\\__init__.py',
+   'PYMODULE'),
+  ('Scripts_Alexo.selecionar_token',
+   'D:\\PythonProject\\Code\\BOT ALEXO\\Scripts_Alexo\\selecionar_token.py',
+   'PYMODULE'),
+  ('Scripts_Alexo.version',
+   'D:\\PythonProject\\Code\\BOT ALEXO\\Scripts_Alexo\\version.py',
+   'PYMODULE'),
+  ('__future__',
+   'C:\\Users\\xandi\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\__future__.py',
+=======
 ('C:\\Users\\joseph.sousa\\Documents\\GitHub\\BOT-ALEXO\\build\\BOT_TELEGRAM\\PYZ-00.pyz',
  [('Scripts_Alexo',
    'C:\\Users\\joseph.sousa\\Documents\\GitHub\\BOT-ALEXO\\Scripts_Alexo\\__init__.py',
@@ -10,6 +24,7 @@
    'PYMODULE'),
   ('__future__',
    'C:\\Users\\joseph.sousa\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\__future__.py',
+>>>>>>> c51f9eaca083f7732ff4b4dfb0c9588cd663be90
    'PYMODULE'),
   ('_colorize',
    'C:\\Users\\joseph.sousa\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\_colorize.py',
@@ -565,6 +580,26 @@
    'PYMODULE'),
   ('dotenv.variables',
    'C:\\Users\\joseph.sousa\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\dotenv\\variables.py',
+   'PYMODULE'),
+  ('dotenv',
+   'D:\\PythonProject\\Code\\BOT '
+   'ALEXO\\venv\\Lib\\site-packages\\dotenv\\__init__.py',
+   'PYMODULE'),
+  ('dotenv.ipython',
+   'D:\\PythonProject\\Code\\BOT '
+   'ALEXO\\venv\\Lib\\site-packages\\dotenv\\ipython.py',
+   'PYMODULE'),
+  ('dotenv.main',
+   'D:\\PythonProject\\Code\\BOT '
+   'ALEXO\\venv\\Lib\\site-packages\\dotenv\\main.py',
+   'PYMODULE'),
+  ('dotenv.parser',
+   'D:\\PythonProject\\Code\\BOT '
+   'ALEXO\\venv\\Lib\\site-packages\\dotenv\\parser.py',
+   'PYMODULE'),
+  ('dotenv.variables',
+   'D:\\PythonProject\\Code\\BOT '
+   'ALEXO\\venv\\Lib\\site-packages\\dotenv\\variables.py',
    'PYMODULE'),
   ('email',
    'C:\\Users\\joseph.sousa\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\email\\__init__.py',
