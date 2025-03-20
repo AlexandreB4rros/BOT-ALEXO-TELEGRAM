@@ -253,5 +253,20 @@
         "CIDADE": "SALTINHO",
         "POP": "STH",
         "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbwmSrbtOG1Cy5ZhTuaERct0q4wjYu5etrieSgpmNealHaKuPQgJsKSWccH3uBaxvzU5/exec"
+    },
+    {
+        "CIDADE": "PIRACICABA",
+        "POP": "PAK",
+        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbwDP8zzs2kl7VJY4cdWbBVG71NZd8aCo1cOnOmurAcYqtJcR2PFOGrOuCzAtcYO5ruD/exec"
+    },
+    {
+        "CIDADE": "PIRACICABA",
+        "POP": "PAB",
+        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbwEiQppIBKSc9uhZfU0FE7jze-Dqe_-fadEKR_kcsjmaV4PlK7gIoZvAiHV7hHj_Zk6Nw/exec"
+    },
+    {
+        "CIDADE": "PIRACICABA",
+        "POP": "PAC",
+        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbw1URg0OflC4JVN2-gA3UFKVWz9_8-ESV9yZt4mN5tMe7Ahivs8GeFt_3kaS2-Fm_Ghiw/exec"
     }
 ]
