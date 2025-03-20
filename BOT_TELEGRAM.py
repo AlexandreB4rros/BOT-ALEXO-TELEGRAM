@@ -314,7 +314,7 @@ async def atividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         logger.error(f"ERRO WH104: COMANDO /Atividades - POP:{pop} - Usuário:{user.first_name} {user.last_name}, Grupo:{chat_title}")
 
-        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Erro: {error_message}")
+        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Erro 1: {error_message}")
 
     return webhook_link
 
@@ -361,7 +361,7 @@ async def checar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.get("status") == "sucesso":
         await update.message.reply_text(text=f"{data.get('confirmacao')}")
     else:
-        await update.message.reply_text(text=f"⚠️ Erro: {data.get('mensagem')}")
+        await update.message.reply_text(text=f" 6: {data.get('mensagem')}")
     return webhook_link
 
 async def localizar_cto(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -472,7 +472,7 @@ async def input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.get("status") == "sucesso":
         await update.message.reply_text(text=f"{data.get('confirmacao')}")
     else:
-        await update.message.reply_text(text=f" ⚠️ Erro: {data.get('mensagem')}")
+        await update.message.reply_text(text=f" ⚠️ Erro 5: {data.get('mensagem')}")
 
 
 async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -687,7 +687,7 @@ async def listarIDs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ctos_com_contador_str = '\n'.join(ctos_com_contador)
         await update.message.reply_text(text=f"IDs disponiveis:\n\n{ctos_com_contador_str}\n\n| Sempre use o Ids da CTO de número [1]")
     else:
-        await update.message.reply_text(text=f"⚠️ Erro: {data.get('mensagem')}")
+        await update.message.reply_text(text=f"⚠️ Erro 4: {data.get('mensagem')}")
 
 async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_title = update.effective_chat.title
@@ -747,7 +747,7 @@ async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(text=f"{ctos}")
     else:
-        await update.message.reply_text(text=f"⚠️ Erro: {data.get('mensagem')}")
+        await update.message.reply_text(text=f"⚠️ Erro 3: {data.get('mensagem')}")
 
 
 async def novaCTO(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -897,7 +897,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if data.get("status") == "sucesso":
                 await update.message.reply_text(text=f"{data.get('mensagem')}")
             else:
-                await update.message.reply_text(text=f"⚠️ Erro: {data.get('mensagem')}")
+                await update.message.reply_text(text=f"⚠️ Erro 2: {data.get('mensagem')}")
 
             context.user_data['waiting_for_location'] = False
 
