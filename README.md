@@ -19,3 +19,23 @@ VOCÊ PROGRAMADOR E ADMINISTRADOR:
     
         EXEMPLO:
             DBUG = 1
+
+
+
+  if (confirmacao) {
+    return respostaJson({
+      status: "sucesso",
+      confirmacao: confirmacao
+    });
+  } else if (outraCondicao) {
+    return respostaJson({
+      status: "tentarnavamente",
+      confirmacao: confirmacao
+    });
+  } else {
+    Logger.log("Confirmação não encontrada para a CTO fornecida.");
+    return respostaJson({
+      status: "erro",
+      mensagem: "Confirmação não encontrada para a CTO fornecida."
+    });
+  }

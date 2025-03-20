@@ -253,7 +253,7 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def fetch_data(webhook_link, payload):
-    try:
+    try:    
         async with aiohttp.ClientSession() as session:
             async with session.post(webhook_link, json=payload) as response:
                 if response.status == 200:
@@ -263,6 +263,7 @@ async def fetch_data(webhook_link, payload):
                 else:
                     logger.error(f"Erro ao conectar ao Apps Script: {response.status} - {response.reason}")
                     return {"status": "error", "message": "Erro ao conectar ao servidor."}
+                
     except Exception as e:
         logger.error(f"/fetch_data - Exceção ao acessar o Apps Script: {e}")
         return {"status": "error", "message": str(e)}
@@ -742,14 +743,11 @@ async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = await fetch_data(webhook_link, payload)
 
+    print(data)
+
     if data.get("status") == "sucesso":
         ctos = data.get('mensagem')
         await update.message.reply_text(text=f"{ctos}")
-
-    elif data.get("status") == "tentarnavamente":
-        ctos = data.get('mensagem')
-        await update.message.reply_text(text=f"{ctos}")
-
     else:
         await update.message.reply_text(text=f"⚠️ Erro 3: {data.get('mensagem')}")
 
