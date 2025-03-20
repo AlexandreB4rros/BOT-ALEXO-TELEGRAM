@@ -744,8 +744,12 @@ async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.get("status") == "sucesso":
         ctos = data.get('mensagem')
-
         await update.message.reply_text(text=f"{ctos}")
+
+    elif data.get("status") == "tentarnavamente":
+        ctos = data.get('mensagem')
+        await update.message.reply_text(text=f"{ctos}")
+
     else:
         await update.message.reply_text(text=f"⚠️ Erro 3: {data.get('mensagem')}")
 
