@@ -268,5 +268,10 @@
         "CIDADE": "PIRACICABA",
         "POP": "PAC",
         "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbw1URg0OflC4JVN2-gA3UFKVWz9_8-ESV9yZt4mN5tMe7Ahivs8GeFt_3kaS2-Fm_Ghiw/exec"
+    },
+    {
+        "CIDADE": "PIRACICABA",
+        "POP": "PAM",
+        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbz6ZkHfjJeRLObxPWqjn5vzcmg-Zq_6VGfuJnAEV_kophEIZpAX2cm9y1_twadjWKU/exec"
     }
 ]

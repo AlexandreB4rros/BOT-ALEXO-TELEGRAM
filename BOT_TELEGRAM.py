@@ -2,19 +2,19 @@ import os
 import sys
 import json
 import time
-import simplekml
 import zipfile
 import logging
-import openpyxl
 import aiohttp
+import openpyxl
 import requests
 import warnings
+import simplekml
 import xml.etree.ElementTree as ET
 
-from dotenv import load_dotenv
 from pathlib import Path
-from openpyxl import Workbook
 from telegram import Update
+from openpyxl import Workbook
+from dotenv import load_dotenv
 from Scripts_Alexo import selecionar_token, __version__
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -115,7 +115,7 @@ def kml_to_xlsx(kml_file, xlsx_file):
     wb = Workbook()
     ws = wb.active
     ws.title = "Placemarks"
-    ws.append(["Nome do Placemark", "Longitude", "Latitude"])
+    ws.append(["Id CTOs", "Latitude", "Longitude"])
 
     for placemark in root.findall(".//kml:Placemark", namespaces):
         name = placemark.find("kml:name", namespaces)
@@ -126,10 +126,11 @@ def kml_to_xlsx(kml_file, xlsx_file):
             coord_parts = coord_text.split(",")
             
             if len(coord_parts) >= 2:
-                lon, lat = coord_parts[:2]
+                lat, lon = coord_parts[:2]
                 ws.append([name.text, lon.strip(), lat.strip()])
     
     wb.save(xlsx_file)
+
 
 def ListaCidades():
     try:
@@ -201,29 +202,6 @@ def encontrar_arquivo_kml_kmz(DirArquivo):
     return None 
 
 
-def kml_to_xlsx(kml_file, xlsx_file):
-    tree = ET.parse(kml_file)
-    root = tree.getroot()
-    namespaces = {'kml': 'http://www.opengis.net/kml/2.2'}
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Placemarks"
-    ws.append(["Id CTOs", "Latitude", "Longitude"])
-
-    for placemark in root.findall(".//kml:Placemark", namespaces):
-        name = placemark.find("kml:name", namespaces)
-        coordinates = placemark.find(".//kml:coordinates", namespaces)
-        
-        if name is not None and coordinates is not None:
-            coord_text = coordinates.text.strip()
-            coord_parts = coord_text.split(",")
-            
-            if len(coord_parts) >= 2:
-                lat, lon = coord_parts[:2]
-                ws.append([name.text, lon.strip(), lat.strip()])
-    
-    wb.save(xlsx_file)
 
 
 def extract_kml_from_kmz(kmz_file, extract_to):
@@ -238,27 +216,23 @@ def extract_kml_from_kmz(kmz_file, extract_to):
     return
 
 
-
-   
 async def converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context):
     """Essa função cria o kml acessando o template na planilha KMZ e gera o KMZ BASE"""
+
+    #ACESSO AO DRIVE
 
     caminho_xlsx = "TEMPLATE REDES IPERÓ.xlsx"
 
     try:
-        # Abre o arquivo Excel
         workbook = openpyxl.load_workbook(caminho_xlsx)
-        
-        # Verifica se a planilha existe
+
         if NomePlanilha_ConvertKML not in workbook.sheetnames:
             print(f"❌ A planilha '{NomePlanilha_ConvertKML}' não foi encontrada.")
             print(f"📄 Planilhas disponíveis: {workbook.sheetnames}")
             return
         
-        # Seleciona a planilha
         sheet = workbook[NomePlanilha_ConvertKML]
 
-        # Cria um objeto KML
         kml = simplekml.Kml()
 
         # Lê os dados a partir da terceira linha (ignorando cabeçalho)
@@ -275,19 +249,42 @@ async def converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_
                 pnt.style.iconstyle.icon.href = IconeUrl_ConvertKML
                 pnt.style.iconstyle.scale = 1.5  # Tamanho do ícone
 
-        # Salva o arquivo KML
         kml.save(Caminho_ConvertKML)
-        await context.bot.send_message(chat_id, f"✅ Arquivo KMZ gerado com sucesso:\n    {Caminho_ConvertKML}")
-
         with open(Caminho_ConvertKML, "rb") as arquivo:
-            await context.bot.send_document(chat_id, document=arquivo, caption="📂 Aqui está o seu KMZ!")
+            await context.bot.send_document(chat_id, document=arquivo, caption=f"Arquivo KML gerado com sucesso:\n    {Caminho_ConvertKML}")
 
-        # Fecha o arquivo Excel
         workbook.close()
     
     except Exception as e:
         print(f"❌ Erro ao processar o arquivo: {e}")
 
+def DE_KMZ_BASE_PARA_TEMPLATE(arquivo_origem, arquivo_destino):
+    """Copia os dados das colunas A, B e C do arquivo de origem para O 'TEMPLATE' na planilha'KMZ' no arquivo de destino."""
+
+    #ACESSO AO DRIVE
+
+    try:
+        wb_origem = openpyxl.load_workbook(arquivo_origem)
+        sheet_origem = wb_origem.active  # Usa a primeira planilha
+        
+        wb_destino = openpyxl.load_workbook(arquivo_destino)
+
+        if "KMZ" not in wb_destino.sheetnames:
+            sheet_destino = wb_destino.create_sheet("KMZ")  # Cria a planilha se não existir
+        else:
+            sheet_destino = wb_destino["KMZ"]
+
+        for row_idx, row in enumerate(sheet_origem.iter_rows(min_row=3, values_only=True), start=3):
+            sheet_destino[f"A{row_idx}"] = row[0]  # Coluna A (Nome do ponto)
+            sheet_destino[f"B{row_idx}"] = row[1]  # Coluna B (Latitude)
+            sheet_destino[f"C{row_idx}"] = row[2]  # Coluna C (Longitude)
+
+        wb_destino.save(arquivo_destino)
+
+        print("✅ Dados copiados com sucesso para a planilha 'KMZ'!")
+
+    except Exception as e:
+        print(f"❌ Erro ao copiar os dados: {e}")
 
 
 async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -588,6 +585,7 @@ async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     comandos = (
         "| AjudaAdm:"
 
+        "\n\n>>> Principais comandos"
         "\n\n - EXIBIR O ID DO GRUPO:"
         "\n    /id"
 
@@ -600,14 +598,26 @@ async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n\n- ADICIONAR NOVO TEMPLATE:"
         "\n    /AddTemplate <cidade> <POP> <WebHook>" 
 
+        "\n\n- Compartilhar Webhook.json:"
+        "\n    /CWH"
+
+        "\n\n- Converter Arquivo KMZ ou KML em arquivo .XLSX:"
+        "\n    /Convert"
+
+        "\n\n- Baxar KMZ da pasta 'kmz e kml' no drive:"
+        "\n    /BaixarKMZ <POP>"
+
+        "\n\n- Gerar KML BASE apartir do template:"
+        "\n    /GerarKMZ <POP>"
+
+        "\n\n>>> Pastas compartilhadas"
+
         "\n\n- Grupo de logger:"
         "\n    https://t.me/+Ij5OdRrCgAVkNTIx"
 
         "\n\n- One Driver Backup:"
         "\n    https://1drv.ms/f/s!AltzaXN7TtjqkqR0OQJ0jYa9VSyhWg?e=bb1LEy"
 
-        "\n\n- Compartilhar Webhook.json:"
-        "\n    /CWH"
 
         "\n\n| *Quando o nome da cidade conter 'espaço' lembre-se \n de subistituir por hífen '-'."
     )
@@ -1052,18 +1062,16 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kml_to_xlsx(file_path, xlsx_file)
 
                 Mensagem_User = f"📄 - Conversor KML para XLSX: \n\nArquivo: {file_name}\nFomarto do arquivo: {Arq}\nConvertido para: XLSX\nNovo Arquivo: {xlsx_file}"
-
+                OpcMSG_text = "Digite uma opção:\n\n[0] - Sair\n\n[1] - Apenas salvar a planilha no drive\n[2] - Inputar points no template e salvar a planilha no Drive"
 
                 await update.message.reply_text(text=Mensagem_User)
                 await context.bot.send_document(chat_id=chat_id, document=open(xlsx_file, 'rb'))
+                await update.message.reply_text(f"{OpcMSG_text}")
+                context.user_data['MsgUser_ApplyPointTemplates'] = True
+                context.user_data['xlsx_file'] = xlsx_file  
 
-                time.sleep(3)
-                arquivo_kml = f"{file_name}"
-                ExcluirArquivos(arquivo_kml)
+                
 
-                time.sleep(3)
-                arquivo_xlsx = f"{xlsx_file}"
-                ExcluirArquivos(arquivo_xlsx)
 
             elif file_extension == 'kmz':
                 extract_to = ""
@@ -1074,16 +1082,18 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     kml_to_xlsx(kml_file, xlsx_file)
 
                     Mensagem_User = f"📄 - Conversor KMZ para XLSX: \n\nArquivo: {file_name}\nFomarto do arquivo: {Arq}\nConvertido para: XLSX\nNovo Arquivo: {xlsx_file}"
+                    OpcMSG_text = "Digite uma opção:\n\n[0] - Sair\n\n[1] - Apenas salvar a planilha no drive\n[2] - Inputar points no template e salvar a planilha no Drive"
+
+
                     await update.message.reply_text(text=Mensagem_User)
                     await context.bot.send_document(chat_id=chat_id, document=open(xlsx_file, 'rb'))
                     
-                    time.sleep(3)
-                    arquivo_kml = f"{file_name}"
-                    ExcluirArquivos(arquivo_kml)
+                    await update.message.reply_text(f"{OpcMSG_text}")
+                    context.user_data['MsgUser_ApplyPointTemplates'] = True
+                    context.user_data['xlsx_file'] = xlsx_file  
 
-                    time.sleep(3)
-                    arquivo_xlsx = f"{xlsx_file}"
-                    ExcluirArquivos(arquivo_xlsx)
+                    
+
 
                 else:
                     await update.message.reply_text("❌ Não foi possível extrair o arquivo KML do arquivo KMZ.")
@@ -1098,8 +1108,6 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     else:
         pass
-    
-        #await update.message.reply_text("❌ Por favor, use o comando /Convert antes de enviar o arquivo.")
 
 
 async def configdrive(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1135,9 +1143,10 @@ async def baixarkmz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         dirarquivo = os.path.join(LinkDrive, Pastakmz)
 
-        print(f"📂 Caminho gerado: {dirarquivo}")
 
         arquivo = encontrar_arquivo_kml_kmz(DirArquivo=dirarquivo)
+        print(f"Caminho gerado: {dirarquivo}")
+        print(f"Caminho gerado: {arquivo}")
 
         if arquivo:
             await update.message.reply_document(document=open(arquivo, "rb"))
@@ -1177,12 +1186,91 @@ async def gerarkmzatualizado(update: Update, context: ContextTypes.DEFAULT_TYPE)
         IconeUrl_ConvertKML = "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png" #Define o icone do arquivo kml
         Caminho_ConvertKML = f"{POP_ConvertKML} - {NomeCidade_ConvertKML} - KMZ BASE.kml"
         
-        await context.bot.send_message(chat_id, "⏳ Gerando KMZ, aguarde...")
-
+        await context.bot.send_message(chat_id, "Gerando KML, aguarde...")
         await converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context)
 
     else:
         await update.message.reply_text("❌ Você precisa informar um POP válido!")
+
+async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import shutil
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    mensagem = update.message.text  # Captura a mensagem do usuário
+
+    # Se o usuário está na primeira etapa de escolha (1 ou 2)
+    if context.user_data.get('MsgUser_ApplyPointTemplates'):
+        if mensagem == "1":  # FLUXO 1
+            context.user_data['selected_flow'] = 1
+            context.user_data['MsgUser_ApplyPointTemplates'] = False  # Reseta a flag
+            context.user_data['waiting_for_pop_1'] = True  # Ativa o fluxo 1
+
+            await context.bot.send_message(chat_id, "📌 Você escolheu o fluxo 1. Digite o POP:")
+
+        elif mensagem == "2":  # FLUXO 2
+            context.user_data['selected_flow'] = 2
+            context.user_data['MsgUser_ApplyPointTemplates'] = False  
+            context.user_data['waiting_for_pop_2'] = True  # Ativa o fluxo 2
+
+            await context.bot.send_message(chat_id, "📌 Você escolheu o fluxo 2. Digite o POP:")
+
+        else:
+            await update.message.reply_text("❌ Comando inválido! Tente novamente.")
+            context.user_data['MsgUser_ApplyPointTemplates'] = False  # Reseta a flag
+        return  # Finaliza a função
+
+    # --- FLUXO 1: Processa o POP informado ---
+    if context.user_data.get('waiting_for_pop_1'):
+        NomeCidade = buscar_cidade_por_pop(mensagem)
+
+        if NomeCidade:
+            NomeCidade = NomeCidade.replace("-", " ")
+            LinkDrive = buscar_dir_drive()
+            caminho_do_arquivo = f"{LinkDrive}\\{NomeCidade}\\ARQUIVOS AUXILIARES\\"
+
+            xlsx_file = context.user_data.get('xlsx_file', "arquivo_padrão.xlsx")
+            dirarquivo = os.path.join(caminho_do_arquivo, xlsx_file)
+
+            # Verifica se o diretório existe, se não, cria
+            if os.path.exists(dirarquivo):
+                os.makedirs(dirarquivo)
+            else:
+                print(f"Caminho não encontrado {dirarquivo}")
+
+            # Nome do arquivo no destino
+            caminho_destino = os.path.join(dirarquivo, os.path.basename(xlsx_file))
+
+            # Garante que o diretório existe
+            os.makedirs(dirarquivo, exist_ok=True)
+
+            # Move o arquivo para o diretório desejado
+            shutil.move(xlsx_file, caminho_destino)
+
+            await context.bot.send_message(chat_id, f"📂 [Fluxo 1] Diretório do arquivo: {dirarquivo}")
+
+            # Finaliza o fluxo 1
+            context.user_data['waiting_for_pop_1'] = False  
+        else:
+            await update.message.reply_text("❌ POP não encontrado! Digite novamente:")
+
+    # --- FLUXO 2: Processa o POP informado ---
+    if context.user_data.get('waiting_for_pop_2'):
+        NomeCidade = buscar_cidade_por_pop(mensagem)
+
+        if NomeCidade:
+            NomeCidade = NomeCidade.replace("-", " ")
+            LinkDrive = buscar_dir_drive()
+            Pastakmz = os.path.join(LinkDrive, NomeCidade, "dados adicionais")
+
+            await context.bot.send_message(chat_id, f"📂 [Fluxo 2] Diretório de dados adicionais: {Pastakmz}")
+
+            # Finaliza o fluxo 2
+            context.user_data['waiting_for_pop_2'] = False  
+        else:
+            await update.message.reply_text("❌ POP não encontrado! Digite novamente:")
+
+
+
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -1209,8 +1297,10 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("AddTemplate", AdcionarTemplate))
     app.add_handler(CommandHandler("ExcluirTemplate", ExcluirTemplate))
 
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_arquivo))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_arquivo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mensagem))
+
     
     logger.info("Automação está rodando...")
     app.run_polling()
