@@ -2,8 +2,10 @@ import os
 import sys
 import json
 import time
+import simplekml
 import zipfile
 import logging
+import openpyxl
 import aiohttp
 import requests
 import warnings
@@ -54,7 +56,7 @@ __credits__ = "Anderson, Josimar"
 FileName = "WebHook.json"
 sys.tracebacklimit = 0
 
-DBUG = 1 ### 1 para ALEXO, 2 PARA TESTE
+DBUG = 2
 
 
 try:
@@ -160,6 +162,45 @@ def buscar_webhook_por_pop(pop):
     except json.JSONDecodeError:
         return "Erro ao ler o arquivo JSON."
 
+
+
+def buscar_cidade_por_pop(pop):
+    try:
+        with open(FileName, 'r', encoding='utf-8') as arquivo_json:
+            dados = json.load(arquivo_json)
+
+        for entry in dados:
+            if entry["POP"].upper() == pop.upper():
+                return entry["CIDADE"]
+
+        return None
+    
+    except FileNotFoundError:
+        return "Arquivo não encontrado."
+    
+    except json.JSONDecodeError:
+        return "Erro ao ler o arquivo JSON."
+
+def buscar_dir_drive():
+    try:
+        with open("config_drive.json", "r", encoding="utf-8") as f:
+            dados = json.load(f)
+            return dados.get("diretorio", "❌ Diretório não encontrado no arquivo.")
+    except FileNotFoundError:
+        return "❌ Arquivo de configuração não encontrado."
+
+
+def encontrar_arquivo_kml_kmz(DirArquivo):
+    if not os.path.exists(DirArquivo):
+        print(f"❌ Diretório não encontrado: {DirArquivo}")  # Debug para verificar o caminho gerado
+        return None
+
+    for arquivo in os.listdir(DirArquivo):
+        if arquivo.endswith((".kml", ".kmz")):
+            return os.path.join(DirArquivo, arquivo)  # Retorna o caminho completo do arquivo
+    return None 
+
+
 def kml_to_xlsx(kml_file, xlsx_file):
     tree = ET.parse(kml_file)
     root = tree.getroot()
@@ -195,6 +236,58 @@ def extract_kml_from_kmz(kmz_file, extract_to):
                 os.rename(kml_file, new_kml_file)
                 return new_kml_file
     return
+
+
+
+   
+async def converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context):
+    """Essa função cria o kml acessando o template na planilha KMZ e gera o KMZ BASE"""
+
+    caminho_xlsx = "TEMPLATE REDES IPERÓ.xlsx"
+
+    try:
+        # Abre o arquivo Excel
+        workbook = openpyxl.load_workbook(caminho_xlsx)
+        
+        # Verifica se a planilha existe
+        if NomePlanilha_ConvertKML not in workbook.sheetnames:
+            print(f"❌ A planilha '{NomePlanilha_ConvertKML}' não foi encontrada.")
+            print(f"📄 Planilhas disponíveis: {workbook.sheetnames}")
+            return
+        
+        # Seleciona a planilha
+        sheet = workbook[NomePlanilha_ConvertKML]
+
+        # Cria um objeto KML
+        kml = simplekml.Kml()
+
+        # Lê os dados a partir da terceira linha (ignorando cabeçalho)
+        for row in sheet.iter_rows(min_row=3, values_only=True):
+            nome = row[0]  # Coluna A (Nome do ponto)
+            lat = row[1]   # Coluna B (Latitude)
+            lon = row[2]   # Coluna C (Longitude)
+
+            # Verifica se os valores são válidos
+            if nome and lat and lon:
+                pnt = kml.newpoint(name=str(nome), coords=[(lon, lat)])  # (Longitude, Latitude)
+
+                # Define o ícone do ponto
+                pnt.style.iconstyle.icon.href = IconeUrl_ConvertKML
+                pnt.style.iconstyle.scale = 1.5  # Tamanho do ícone
+
+        # Salva o arquivo KML
+        kml.save(Caminho_ConvertKML)
+        await context.bot.send_message(chat_id, f"✅ Arquivo KMZ gerado com sucesso:\n    {Caminho_ConvertKML}")
+
+        with open(Caminho_ConvertKML, "rb") as arquivo:
+            await context.bot.send_document(chat_id, document=arquivo, caption="📂 Aqui está o seu KMZ!")
+
+        # Fecha o arquivo Excel
+        workbook.close()
+    
+    except Exception as e:
+        print(f"❌ Erro ao processar o arquivo: {e}")
+
 
 
 async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,19 +347,30 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def fetch_data(webhook_link, payload):
     try:    
+        # Criação da sessão HTTP assíncrona
         async with aiohttp.ClientSession() as session:
+            # Requisição POST ao webhook
             async with session.post(webhook_link, json=payload) as response:
+                response_data = await response.json()
+
                 if response.status == 200:
-                    response_data = await response.json()
                     logger.info(f"Google App Script - Resposta: {response_data}")
                     return response_data
                 else:
                     logger.error(f"Erro ao conectar ao Apps Script: {response.status} - {response.reason}")
-                    return {"status": "error", "message": "Erro ao conectar ao servidor."}
-                
+                    return {
+                        "status": "error",
+                        "message": f"Erro ao conectar ao servidor: {response.reason}."
+                    }
+
+    except aiohttp.ClientError as client_error:
+        logger.error(f"Erro de cliente HTTP: {client_error}")
+        return {"status": "error", "message": "Erro de comunicação com o servidor."}
+
     except Exception as e:
-        logger.error(f"/fetch_data - Exceção ao acessar o Apps Script: {e}")
-        return {"status": "error", "message": str(e)}
+        logger.error(f"/fetch_data - Exceção inesperada: {e}")
+        return {"status": "error", "message": f"Erro inesperado: {str(e)}"}
+
 
 
 async def atividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -839,8 +943,6 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     EquipeWH(chat_title, chat_id,user,user_id)
 
-    
-
     if update.message and update.message.location:
         location = update.message.location
         latitude = location.latitude
@@ -1000,8 +1102,94 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         #await update.message.reply_text("❌ Por favor, use o comando /Convert antes de enviar o arquivo.")
 
 
+async def configdrive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+
+    # Verifica se o usuário passou um argumento
+    if context.args:
+        DirDrive = context.args[0]
+
+        # Criar um dicionário com os dados
+        dados = {"diretorio": DirDrive}
+
+        # Salvar no arquivo JSON
+        with open("config_drive.json", "w", encoding="utf-8") as f:
+            json.dump(dados, f, ensure_ascii=False, indent=4)
+
+        await update.message.reply_text(f"✅ Diretório salvo: {DirDrive}")
+
+    else:
+        await update.message.reply_text("❌ Você precisa informar um diretório! Exemplo: /configdrive nome_da_pasta")
+
+
+async def baixarkmz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        pop = context.args[0]
+        pop = pop.split('-')[0]
+
+        NomeCidade = buscar_cidade_por_pop(pop).replace("-", " ")
+        LinkDrive = buscar_dir_drive()
+
+        Pastakmz = f"{NomeCidade}/kmz e kml"
+
+        dirarquivo = os.path.join(LinkDrive, Pastakmz)
+
+        print(f"📂 Caminho gerado: {dirarquivo}")
+
+        arquivo = encontrar_arquivo_kml_kmz(DirArquivo=dirarquivo)
+
+        if arquivo:
+            await update.message.reply_document(document=open(arquivo, "rb"))
+            await update.message.reply_text(f"📄 Arquivo enviado: {os.path.basename(arquivo)}")
+        else:
+            await update.message.reply_text("❌ Nenhum arquivo KML/KMZ encontrado no diretório.")
+
+    else:
+        await update.message.reply_text("❌ Você precisa informar um POP válido!")
+
+async def gerarkmzatualizado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+
+    if context.args:
+        POP_ConvertKML = context.args[0]
+        POP_ConvertKML = POP_ConvertKML.split('-')[0]  # Pega apenas a primeira parte antes do "-"
+        POP_ConvertKML = str(POP_ConvertKML.upper())
+
+        NomeCidade_ConvertKML = buscar_cidade_por_pop(POP_ConvertKML)
+        
+        if NomeCidade_ConvertKML:
+            NomeCidade_ConvertKML = NomeCidade_ConvertKML.replace("-", " ")
+            
+        else:
+            print(f"❌ Não foi possível encontrar a cidade para o POP: {POP_ConvertKML}")
+            return
+        
+        NomeCidade_ConvertKML = NomeCidade_ConvertKML.replace("-", " ")
+        
+        LinkDrive = buscar_dir_drive()
+
+        Pastakmz = f"{LinkDrive}{NomeCidade_ConvertKML}/kmz e kml"
+
+        dirarquivo = os.path.join(Pastakmz)
+        NomePlanilha_ConvertKML = "KMZ"
+        IconeUrl_ConvertKML = "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png" #Define o icone do arquivo kml
+        Caminho_ConvertKML = f"{POP_ConvertKML} - {NomeCidade_ConvertKML} - KMZ BASE.kml"
+        
+        await context.bot.send_message(chat_id, "⏳ Gerando KMZ, aguarde...")
+
+        await converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context)
+
+    else:
+        await update.message.reply_text("❌ Você precisa informar um POP válido!")
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+
+    app.add_handler(CommandHandler("BaixarKmz", baixarkmz))
+    app.add_handler(CommandHandler("GerarKmz", gerarkmzatualizado))
 
     app.add_handler(CommandHandler("Id", id))
     app.add_handler(CommandHandler("CWH", CWH))
@@ -1015,6 +1203,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("AjudaAdm", AjudaAdm))
     app.add_handler(CommandHandler("ListarIDs", listarIDs))
     app.add_handler(CommandHandler("Atividades", atividades))
+    app.add_handler(CommandHandler("ConfigurarDrive", configdrive))
     app.add_handler(CommandHandler("Localizar", localizar_cto))
     app.add_handler(CommandHandler("ExibirCidade", ExibirCidade))
     app.add_handler(CommandHandler("AddTemplate", AdcionarTemplate))
