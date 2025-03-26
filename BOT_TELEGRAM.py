@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import zipfile
 import logging
 import aiohttp
@@ -98,14 +99,34 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 SPLITTERS_VALIDOS = {"1/16", "1/8", "1/4"}
 
-def ExcluirArquivos(arquivo):
-    # Função que exclui todos os tipos de arquivos
-    if os.path.exists(arquivo):
-        os.remove(arquivo)
-        logger.info(f"Arquivo '{arquivo}' foi removido com sucesso.")
-        
+import glob
+
+def ExcluirArquivos(caminho_arquivo):
+    pasta, nome_base_ext = os.path.split(caminho_arquivo)
+    nome_base, ext = os.path.splitext(nome_base_ext)
+
+    # Procura todas as versões do arquivo no diretório
+    arquivos_encontrados = glob.glob(os.path.join(pasta, f"{nome_base}*{ext}"))
+
+    if arquivos_encontrados:
+        for arquivo in arquivos_encontrados:
+            try:
+                os.remove(arquivo)
+                print(f"✅ Arquivo excluído: {arquivo}")
+            except Exception as e:
+                print(f"❌ Erro ao excluir '{arquivo}': {e}")
     else:
-        logger.info(f"Erro ao excluir o '{arquivo}', o arquivo não encontrado na raiz.")
+        logger.info(f"Erro ao excluir um arquivo - ⚠️ Nenhuma versão do arquivo encontrada para exclusão: {caminho_arquivo}")
+
+def ExcluirArquivosporExtensao():
+    diretorio = Path("")
+    extensoes = [".xlsx", ".kml", ".kmz"]
+    for arquivo in diretorio.iterdir():
+        if arquivo.suffix in extensoes:
+            arquivo.unlink()
+            logger.info(f"Ajuste do diretório raiz - Excluído: {arquivo}")
+
+
 
 def kml_to_xlsx(kml_file, xlsx_file):
     tree = ET.parse(kml_file)
@@ -115,7 +136,7 @@ def kml_to_xlsx(kml_file, xlsx_file):
     wb = Workbook()
     ws = wb.active
     ws.title = "Placemarks"
-    ws.append(["Id CTOs", "Latitude", "Longitude"])
+    ws.append(["PLACEMARK", "LATITUDE", "LONGITUDE"])
 
     for placemark in root.findall(".//kml:Placemark", namespaces):
         name = placemark.find("kml:name", namespaces)
@@ -191,9 +212,39 @@ def buscar_dir_drive():
         return "❌ Arquivo de configuração não encontrado."
 
 
+async def EnviaArquivosDrive(dirarquivo, xlsx_file, chat_id, context, kmz_file=None, new_kml_file=None):
+    # Verifica se o diretório existe, se não, cria
+    if not os.path.exists(dirarquivo):
+        os.makedirs(dirarquivo)
+
+    # Nome do arquivo no destino
+    nome_base, ext = os.path.splitext(os.path.basename(xlsx_file))
+    caminho_destino = os.path.join(dirarquivo, os.path.basename(xlsx_file))
+
+    # Se o arquivo já existir, criar versões incrementais
+    contador = 1
+    while os.path.exists(caminho_destino):
+        contador += 1
+        novo_nome = f"{nome_base}_v{contador}{ext}"
+        caminho_destino = os.path.join(dirarquivo, novo_nome)
+
+    # Verifica se o arquivo existe antes de mover
+    if os.path.exists(xlsx_file):
+        shutil.move(xlsx_file, caminho_destino)
+        mensagem = f"📂 Arquivo salvo no drive:\n\nNome do arquivo:\n{os.path.basename(caminho_destino)}\n\nDiretório do arquivo:\n{dirarquivo}"
+        
+        if contador > 1:
+            mensagem += f"\n\n⚠️ O arquivo já existia e foi salvo como versão v{contador}."
+        
+        await context.bot.send_message(chat_id, mensagem)
+    else:
+        await context.bot.send_message(chat_id, f"❌ Arquivo não encontrado: {xlsx_file}")
+
+    
 def encontrar_arquivo_kml_kmz(DirArquivo):
     if not os.path.exists(DirArquivo):
-        print(f"❌ Diretório não encontrado: {DirArquivo}")  # Debug para verificar o caminho gerado
+        logger.info(f"Encontrar arquivo - ❌ Diretório não encontrado: {DirArquivo}")
+
         return None
 
     for arquivo in os.listdir(DirArquivo):
@@ -213,22 +264,21 @@ def extract_kml_from_kmz(kmz_file, extract_to):
                 new_kml_file = os.path.join(extract_to, os.path.splitext(os.path.basename(kmz_file))[0] + '.kml')
                 os.rename(kml_file, new_kml_file)
                 return new_kml_file
-    return
+    return 
 
 
-async def converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context):
+async def converter_planilha_template_para_kml(CaminhoXLSX_Converter, Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context):
     """Essa função cria o kml acessando o template na planilha KMZ e gera o KMZ BASE"""
 
     #ACESSO AO DRIVE
 
-    caminho_xlsx = "TEMPLATE REDES IPERÓ.xlsx"
 
     try:
-        workbook = openpyxl.load_workbook(caminho_xlsx)
+        workbook = openpyxl.load_workbook(CaminhoXLSX_Converter)
 
         if NomePlanilha_ConvertKML not in workbook.sheetnames:
-            print(f"❌ A planilha '{NomePlanilha_ConvertKML}' não foi encontrada.")
-            print(f"📄 Planilhas disponíveis: {workbook.sheetnames}")
+            logger.info(f"Converter arquivo - ❌ A planilha '{NomePlanilha_ConvertKML}' não foi encontrada.")
+            logger.info(f"📄 Planilhas disponíveis: {workbook.sheetnames}")
             return
         
         sheet = workbook[NomePlanilha_ConvertKML]
@@ -256,7 +306,7 @@ async def converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_
         workbook.close()
     
     except Exception as e:
-        print(f"❌ Erro ao processar o arquivo: {e}")
+        logger.erro(f"❌ Erro ao processar o arquivo: {e}")
 
 def DE_KMZ_BASE_PARA_TEMPLATE(arquivo_origem, arquivo_destino):
     """Copia os dados das colunas A, B e C do arquivo de origem para O 'TEMPLATE' na planilha'KMZ' no arquivo de destino."""
@@ -284,7 +334,31 @@ def DE_KMZ_BASE_PARA_TEMPLATE(arquivo_origem, arquivo_destino):
         print("✅ Dados copiados com sucesso para a planilha 'KMZ'!")
 
     except Exception as e:
-        print(f"❌ Erro ao copiar os dados: {e}")
+        logger.erro(f"❌ Erro ao copiar os dados: {e}")
+
+
+async def VerificarTemplatemporPOP(DirTemplate, PopInformado_user, update):
+    """Essa função verifica se o template existe no diretório do drive e se o POP informado corresponde ao esperado."""
+    # Verifica se a pasta existe antes de tentar listar os arquivos
+    if os.path.exists(DirTemplate):
+        for arquivo in os.listdir(DirTemplate):
+            if arquivo.startswith("TEMPLATE REDES") and arquivo.endswith(".gsheet"):
+                partes = arquivo.replace(".gsheet", "").split()
+
+                if len(partes) >= 3:  # Verifica se há pelo menos três partes (padrão + POP + cidade)
+                    pop = partes[2]  # O POP é a terceira palavra no nome do arquivo
+                    
+                    # ✅ Verificação: POP deve ter no máximo 3 letras
+                    if pop == PopInformado_user:  # Verifica se o POP é igual ao valor esperado
+                        caminho_arquivo = os.path.join(DirTemplate, arquivo)
+                        logger.info(f"handle_mensagem - POP: {pop} - Arquivo encontrado: {caminho_arquivo}")
+                    else:
+                        logger.info(f"handle_mensagem - POP: {pop} não corresponde ao esperado.")
+    else:
+        await update.message.reply_text(
+            f"Erro ao acessar o template no diretório do drive.\n\n"
+            f"| Informações recebidas:\nCaminho recebido do Template:\n{DirTemplate}"
+        )
 
 
 async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -603,6 +677,13 @@ async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         "\n\n- Converter Arquivo KMZ ou KML em arquivo .XLSX:"
         "\n    /Convert"
+        "\n    Fluxo do comando:"
+        "\n        0. Finalizar o comando /Convert"
+        "\n        1. Enviar o arquivo KMZ ou KML para o Driver:"
+        "\n            - Informar o pop da cidade que deseja salvar o arquivo"
+        "\n        2. Insertar os points no template e salvar os arquivos"
+        "\n            - Informar o pop da cidade que deseja salvar o arquivo"
+
 
         "\n\n- Baxar KMZ da pasta 'kmz e kml' no drive:"
         "\n    /BaixarKMZ <POP>"
@@ -1176,10 +1257,15 @@ async def gerarkmzatualizado(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         
         NomeCidade_ConvertKML = NomeCidade_ConvertKML.replace("-", " ")
+
+        print(NomeCidade_ConvertKML)
         
+        #await VerificarTemplatemporPOP(NomeCidade_ConvertKML, POP_ConvertKML, update)
+
         LinkDrive = buscar_dir_drive()
 
         Pastakmz = f"{LinkDrive}{NomeCidade_ConvertKML}/kmz e kml"
+        CaminhoXLSX_Converter = NomeCidade_ConvertKML
 
         dirarquivo = os.path.join(Pastakmz)
         NomePlanilha_ConvertKML = "KMZ"
@@ -1187,13 +1273,12 @@ async def gerarkmzatualizado(update: Update, context: ContextTypes.DEFAULT_TYPE)
         Caminho_ConvertKML = f"{POP_ConvertKML} - {NomeCidade_ConvertKML} - KMZ BASE.kml"
         
         await context.bot.send_message(chat_id, "Gerando KML, aguarde...")
-        await converter_planilha_template_para_kml(Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context)
+        await converter_planilha_template_para_kml(CaminhoXLSX_Converter, Caminho_ConvertKML, NomePlanilha_ConvertKML, IconeUrl_ConvertKML, chat_id, context)
 
     else:
         await update.message.reply_text("❌ Você precisa informar um POP válido!")
 
 async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import shutil
     chat_id = update.effective_chat.id
     user = update.effective_user
     mensagem = update.message.text  # Captura a mensagem do usuário
@@ -1204,71 +1289,78 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['selected_flow'] = 1
             context.user_data['MsgUser_ApplyPointTemplates'] = False  # Reseta a flag
             context.user_data['waiting_for_pop_1'] = True  # Ativa o fluxo 1
-
-            await context.bot.send_message(chat_id, "📌 Você escolheu o fluxo 1. Digite o POP:")
+            await context.bot.send_message(chat_id, "📌 O fluxo [1] foi selecionado!\n\nPor favor, informe o POP para continuar.")
 
         elif mensagem == "2":  # FLUXO 2
             context.user_data['selected_flow'] = 2
             context.user_data['MsgUser_ApplyPointTemplates'] = False  
             context.user_data['waiting_for_pop_2'] = True  # Ativa o fluxo 2
-
-            await context.bot.send_message(chat_id, "📌 Você escolheu o fluxo 2. Digite o POP:")
+            await context.bot.send_message(chat_id, "📌 O fluxo [2] foi selecionado!\n\nPor favor, informe o POP para continuar.")
 
         else:
-            await update.message.reply_text("❌ Comando inválido! Tente novamente.")
+            await update.message.reply_text("Comando 'convert' finalizado.")
             context.user_data['MsgUser_ApplyPointTemplates'] = False  # Reseta a flag
-        return  # Finaliza a função
-
+            context.user_data['waiting_for_pop_1'] = False
+            context.user_data['waiting_for_pop_2'] = False
+        return
+    
     # --- FLUXO 1: Processa o POP informado ---
     if context.user_data.get('waiting_for_pop_1'):
-        NomeCidade = buscar_cidade_por_pop(mensagem)
+        NomeCidade = buscar_cidade_por_pop(update.message.text)
 
         if NomeCidade:
             NomeCidade = NomeCidade.replace("-", " ")
             LinkDrive = buscar_dir_drive()
-            caminho_do_arquivo = f"{LinkDrive}\\{NomeCidade}\\ARQUIVOS AUXILIARES\\"
+            caminho_do_arquivo = os.path.join(LinkDrive, NomeCidade, "ARQUIVOS AUXILIARES")
+            print(caminho_do_arquivo)
 
             xlsx_file = context.user_data.get('xlsx_file', "arquivo_padrão.xlsx")
-            dirarquivo = os.path.join(caminho_do_arquivo, xlsx_file)
+            kmz_file = context.user_data.get('kmz_file')  # Obtendo o kmz_file armazenado
+            new_kml_file = context.user_data.get('new_kml_file')  # Obtendo o new_kml_file armazenado
 
-            # Verifica se o diretório existe, se não, cria
-            if os.path.exists(dirarquivo):
-                os.makedirs(dirarquivo)
-            else:
-                print(f"Caminho não encontrado {dirarquivo}")
-
-            # Nome do arquivo no destino
-            caminho_destino = os.path.join(dirarquivo, os.path.basename(xlsx_file))
-
-            # Garante que o diretório existe
-            os.makedirs(dirarquivo, exist_ok=True)
-
-            # Move o arquivo para o diretório desejado
-            shutil.move(xlsx_file, caminho_destino)
-
-            await context.bot.send_message(chat_id, f"📂 [Fluxo 1] Diretório do arquivo: {dirarquivo}")
-
-            # Finaliza o fluxo 1
-            context.user_data['waiting_for_pop_1'] = False  
+            # Chama a função para salvar o arquivo no diretório
+            await EnviaArquivosDrive(caminho_do_arquivo, xlsx_file, chat_id, context, kmz_file, new_kml_file)
+            context.user_data['waiting_for_pop_1'] = False 
+            ExcluirArquivosporExtensao()
+            
         else:
-            await update.message.reply_text("❌ POP não encontrado! Digite novamente:")
+            await update.message.reply_text("❌ POP não encontrado na lista de templates! Digite novamente:")
+            ExcluirArquivosporExtensao()
+        
 
     # --- FLUXO 2: Processa o POP informado ---
     if context.user_data.get('waiting_for_pop_2'):
-        NomeCidade = buscar_cidade_por_pop(mensagem)
+        PopInformado_user = update.message.text
+        PopInformado_user = PopInformado_user.upper()
+        NomeCidade = buscar_cidade_por_pop(PopInformado_user)
 
         if NomeCidade:
             NomeCidade = NomeCidade.replace("-", " ")
             LinkDrive = buscar_dir_drive()
-            Pastakmz = os.path.join(LinkDrive, NomeCidade, "dados adicionais")
+            caminho_do_arquivo = os.path.join(LinkDrive, NomeCidade, "ARQUIVOS AUXILIARES")
 
-            await context.bot.send_message(chat_id, f"📂 [Fluxo 2] Diretório de dados adicionais: {Pastakmz}")
+            xlsx_file = context.user_data.get('xlsx_file', "arquivo_padrão.xlsx")
+            kmz_file = context.user_data.get('kmz_file')  # Obtendo o kmz_file armazenado
+            new_kml_file = context.user_data.get('new_kml_file')  # Obtendo o new_kml_file armazenado
 
-            # Finaliza o fluxo 2
-            context.user_data['waiting_for_pop_2'] = False  
-        else:
-            await update.message.reply_text("❌ POP não encontrado! Digite novamente:")
+            DirTemplate = os.path.join(LinkDrive, NomeCidade, "CEP CTO")
 
+            await VerificarTemplatemporPOP(DirTemplate, PopInformado_user, update)
+
+            
+        # Chama a função para salvar o arquivo no diretório
+        await EnviaArquivosDrive(caminho_do_arquivo, xlsx_file, chat_id, context, kmz_file, new_kml_file)
+
+        #DE_KMZ_BASE_PARA_TEMPLATE(xlsx_file, caminho_arquivo)
+
+        ExcluirArquivosporExtensao()
+        context.user_data['waiting_for_pop_2'] = False  
+
+    else:
+        await update.message.reply_text("❌ POP não encontrado na lista de templates! Digite novamente:")
+        context.user_data['waiting_for_pop_1'] = False
+        context.user_data['waiting_for_pop_2'] = False
+        ExcluirArquivosporExtensao()
 
 
 
