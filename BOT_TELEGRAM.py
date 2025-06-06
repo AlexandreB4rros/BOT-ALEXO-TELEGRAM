@@ -57,7 +57,7 @@ __credits__ = "Anderson, Josimar"
 FileName = "WebHook.json"
 sys.tracebacklimit = 0
 
-DBUG = 2
+DBUG = 1
 
 
 try:
@@ -810,11 +810,13 @@ async def id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     chat_title = update.effective_chat.title
     user = update.effective_user
+    user_id=update.effective_user.id
 
     logger.info(f"/id - Usuário:{user.first_name} {user.last_name}, Grupo:{chat_title}")
     
     await update.message.reply_text(f"A ID deste grupo é: {chat_id}, "
-                                    f"Nome do grupo: {chat_title}")
+                                    f"Nome do grupo: {chat_title}"
+                                    f"ID do Usuario: {user_id}")
 
 async def Info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
