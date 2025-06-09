@@ -19,15 +19,21 @@ from dotenv import load_dotenv
 from Scripts_Alexo import selecionar_token, __version__
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
+# Caminho do arquivo .env para carregar variáveis de ambiente
 caminho_env = Path(__file__).parent / ".env"
+
+# Carrega as variáveis de ambiente do arquivo .env localizado no mesmo diretório do script
 load_dotenv(dotenv_path=caminho_env)
 
+# Ignora avisos do tipo UserWarning para evitar poluição no log
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Filtro de logging para ignorar mensagens de AttributeError
 class IgnoreAttributeErrorFilter(logging.Filter):
     def filter(self, record):
         return "AttributeError" not in record.getMessage()
 
+# Função para enviar logs diretamente para um grupo do Telegram
 def send_log_to_telegram(message):
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
     payload = {
@@ -37,10 +43,11 @@ def send_log_to_telegram(message):
     }
     requests.post(url, json=payload)
 
-
+# Configuração do logger principal do sistema
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Handler para exibir logs no console
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -48,18 +55,23 @@ console_handler.setFormatter(console_formatter)
 console_handler.addFilter(IgnoreAttributeErrorFilter())
 
 
+# Adiciona o handler de console ao logger
 logger.addHandler(console_handler)
 
 
 __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
+# Nome do arquivo de configuração dos webhooks
 FileName = "WebHook.json"
+# Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
+# Flag de debug para selecionar o token do bot (1 = produção, 2 = teste)
 DBUG = 1
 
 
+# Seleciona o token do bot conforme o modo de debug
 try:
     BOT_TOKEN = selecionar_token(DBUG)
 except ValueError as e:
