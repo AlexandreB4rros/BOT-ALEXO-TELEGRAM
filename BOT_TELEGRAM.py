@@ -34,45 +34,38 @@ import aiofiles
 from html import escape
 from telegram.constants import ParseMode
 
-# --- Configuração Inicial ---
-
-# Define o caminho para o arquivo .env, que armazena variáveis de ambiente (como tokens) de forma segura
 caminho_env = Path(__file__).parent / ".env"
+
+# Carrega as variáveis de ambiente do arquivo .env localizado no mesmo diretório do script
 load_dotenv(dotenv_path=caminho_env)
 
-# Suprime todos os avisos da categoria UserWarning.
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# --- Configuração de Logging ---
-
-# Cria um filtro customizado para o logger
 class IgnoreAttributeErrorFilter(logging.Filter):
     # Este filtro impede que mensagens de log contendo "AttributeError" sejam exibidas.
     def filter(self, record):
         return "AttributeError" not in record.getMessage()
 
-# Função para enviar mensagens de log diretamente para um grupo do Telegram
-async def send_log_to_telegram(message):
-    """Envia uma mensagem de log para um grupo do Telegram de forma assíncrona."""
-    try:
-        url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
-        payload = {
-            'chat_id': TELEGRAM_GROUP_ID, 
-            'text': message,              
-            'parse_mode': 'Markdown'      
-        }
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            await session.post(url, json=payload)
-    except Exception as e:
-        print(f"LOGGING FALLBACK (ERRO INESPERADO): {e}")
+def send_log_to_telegram(message):
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    payload = {
+        'chat_id': TELEGRAM_GROUP_ID,
+        'text': message,
+        'parse_mode': 'Markdown'
+    }
+    requests.post(url, json=payload)
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(console_formatter)
 console_handler.addFilter(IgnoreAttributeErrorFilter())
+
+
 logger.addHandler(console_handler)
 
 
@@ -81,17 +74,17 @@ logger.addHandler(console_handler)
 # Define os metadados do script
 __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
+
 FileName = "WebHook.json"
+# Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-# Variável de controle de depuração (DEBUG).
-#DBUG 1 - BOT PRODUÇÃO
-#DBUG 2 - BOT DESENVOLVIMENTO
-DBUG = 2
+DBUG = 1
 
 
 # --- Inicialização do Token do Bot ---
 
+# Seleciona o token do bot conforme o modo de debug
 try:
     # Tenta obter o token do bot chamando a função customizada 'selecionar_token'
     BOT_TOKEN = selecionar_token(DBUG)
