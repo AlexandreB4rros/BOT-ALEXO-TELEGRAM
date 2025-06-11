@@ -46,14 +46,25 @@ class IgnoreAttributeErrorFilter(logging.Filter):
     def filter(self, record):
         return "AttributeError" not in record.getMessage()
 
-def send_log_to_telegram(message):
+async def send_log_to_telegram(message: str):
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
     payload = {
         'chat_id': TELEGRAM_GROUP_ID,
-        'text': message,
+        'text': f"[LOG] {message}", # 
         'parse_mode': 'Markdown'
     }
-    requests.post(url, json=payload)
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as response:
+                if response.status != 200:
+                    print(f"LOGGING FALLBACK (API ERROR): Status {response.status} ao enviar log.")
+
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        print(f"LOGGING FALLBACK (NETWORK ERROR): {e}")
+    except Exception as e:
+        print(f"LOGGING FALLBACK (UNEXPECTED ERROR): {e}")
 
 
 logger = logging.getLogger()
