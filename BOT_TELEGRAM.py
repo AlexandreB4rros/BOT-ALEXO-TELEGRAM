@@ -1764,7 +1764,8 @@ def main() -> None:
         # Handler para qualquer mensagem de texto que NÃO seja um comando.
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mensagem))
         # Handler que escuta por edições de mensagens de texto e envia para a mesma função 'handle_mensagem'.
-        app.add_handler(MessageHandler(filters.Update.EDITED_MESSAGE & filters.TEXT & ~filters.COMMAND, handle_mensagem))
+        app.add_handler(MessageHandler(filters.Update.EDITED_MESSAGE, handle_mensagem))
+
 
         # --- Agendamento de Tarefas ---
         fuso_horario_sp = pytz.timezone('America/Sao_Paulo')
