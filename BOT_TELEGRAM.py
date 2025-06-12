@@ -357,14 +357,18 @@ async def cadastrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             hash_convite = secrets.token_hex(16)
             query_insert_invite = "INSERT INTO cadastros_pendentes (hash_convite, cargo_id, admin_id) VALUES (%s, %s, %s)"
             await cursor.execute(query_insert_invite, (hash_convite, cargo_id, user.id))
-            
+            bot_info = await context.bot.get_me()
+            bot_username = bot_info.username
+            cargo = escape(str(cargo_solicitado))
+
         mensagem = (
             f"✅ Convite de cadastro gerado com sucesso!\n\n"
-            f"Cargo: *{cargo_solicitado}*\n\n"
-            f"Peça para o novo usuário enviar o seguinte comando para o bot:\n"
-            f"`/novo_usuario {hash_convite}`"
-        )
-        await update.message.reply_text(mensagem, parse_mode='Markdown')
+            f"<b>Cargo:</b> {cargo}\n\n"
+            f"Peça para o novo usuário contatar o bot @{bot_username} e enviar o seguinte comando:\n\n"
+            f"(Clique no texto abaixo para copiar 👇)\n"
+            f"<code>/novo_usuario {hash_convite}</code>")
+        
+        await update.message.reply_text(mensagem, parse_mode=ParseMode.HTML)
         logger.info(f"Admin {user.id} gerou um convite para o cargo {cargo_solicitado} (ID: {cargo_id})")
 
     except Exception as e:
@@ -429,7 +433,10 @@ async def novo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         if conexao_db: conexao_db.close()
 
 async def receber_matricula(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    matricula = update.message.text
+    message = update.message or update.edited_message
+    if not message:
+        return ConversationHandler.END
+    matricula = message.text
     # Armazena a matrícula recebida.
     context.user_data['cadastro_matricula'] = matricula
     logger.info(f"Usuário {update.effective_user.id} informou a matrícula: {matricula}")
@@ -438,8 +445,11 @@ async def receber_matricula(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return RECEBER_NOME
 
 async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    message = update.message or update.edited_message
+    if not message:
+        return ConversationHandler.END
     user = update.effective_user
-    nome_completo = update.message.text
+    nome_completo = message.text
     
     # Recupera os dados da conversa armazenados em user_data.
     cargo_id = context.user_data.get('cadastro_cargo_id')
@@ -1608,8 +1618,9 @@ async def gerarkmzatualizado(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Este handler atua como uma "máquina de estados" para gerenciar o fluxo após a conversão de um arquivo.
 async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    mensagem = update.message.text
-    
+    message = update.message or update.edited_message
+    mensagem = message.text
+
     # ESTADO 1: O bot está esperando uma opção (0, 1 ou 2) após converter um arquivo.
     if context.user_data.get('MsgUser_ApplyPointTemplates'):
         if mensagem == "1":
@@ -1619,7 +1630,7 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['selected_flow'] = 2
             await context.bot.send_message(chat_id, "📌 Fluxo [2] selecionado!\n\nPor favor, informe o POP para continuar.")
         else:
-            await update.message.reply_text("Comando 'convert' finalizado.")
+            await message.reply_text("Comando 'convert' finalizado.")
             context.user_data.clear()
             return
         context.user_data.pop('MsgUser_ApplyPointTemplates')
@@ -1633,12 +1644,12 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         NomeCidade = await buscar_cidade_por_pop(pop_informado)
         if not NomeCidade:
-            await update.message.reply_text("❌ POP não encontrado! Tente novamente ou digite 0 para sair.")
+            await message.reply_text("❌ POP não encontrado! Tente novamente ou digite 0 para sair.")
             return
 
         LinkDrive = await buscar_dir_drive()
         if "❌" in LinkDrive:
-            await update.message.reply_text(LinkDrive)
+            await message.reply_text(LinkDrive)
             context.user_data.clear()
             return
         
@@ -1647,11 +1658,11 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Executa o fluxo de salvar o arquivo convertido
         await _run_blocking_io(EnviaArquivosDrive, caminho_aux, xlsx_file)
-        await update.message.reply_text(f"✅ Arquivo '{xlsx_file}' salvo na pasta de arquivos auxiliares.")
+        await message.reply_text(f"✅ Arquivo '{xlsx_file}' salvo na pasta de arquivos auxiliares.")
 
         if flow == 2:
             # Lógica para inputar no template
-            await update.message.reply_text("⚙️ Lógica para inputar os pontos no template ainda a ser implementada.")
+            await message.reply_text("⚙️ Lógica para inputar os pontos no template ainda a ser implementada.")
             # ... aqui entraria a lógica de DE_KMZ_BASE_PARA_TEMPLATE, que também precisa ser não-bloqueante
         
         context.user_data.clear()
@@ -1659,7 +1670,7 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ESTADO 2 / FLUXO 1: O bot está esperando um POP para o fluxo 1.
     if context.user_data.get('waiting_for_pop_1'):
-        NomeCidade = await buscar_cidade_por_pop(update.message.text)
+        NomeCidade = await buscar_cidade_por_pop(mensagem)
         if NomeCidade:
             caminho_do_arquivo = os.path.join(buscar_dir_drive(), NomeCidade.replace("-", " "), "ARQUIVOS AUXILIARES")
             # Recupera o nome do arquivo .xlsx que foi gerado e salvo no user_data.
@@ -1672,7 +1683,7 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     # ESTADO 3 / FLUXO 2: O bot está esperando um POP para o fluxo 2.
     if context.user_data.get('waiting_for_pop_2'):
-        PopInformado_user = update.message.text.upper()
+        PopInformado_user = mensagem.upper()
         NomeCidade = await buscar_cidade_por_pop(PopInformado_user)
         if NomeCidade:
             caminho_do_arquivo_aux = os.path.join(buscar_dir_drive(), NomeCidade.replace("-", " "), "ARQUIVOS AUXILIARES")
