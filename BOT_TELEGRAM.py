@@ -90,7 +90,7 @@ FileName = "WebHook.json"
 # Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-DBUG = 2
+DBUG = 1
 
 
 # --- Inicialização do Token do Bot ---
@@ -578,7 +578,7 @@ async def buscar_ctos_proximas(lat, lon):
 
 # Função para gerar uma imagem de mapa com a localização do usuário e as CTOs próximas.
 
-def criar_mapa_ctos(user_lat, user_lon, ctos_encontradas):
+def mapa_ctos(user_lat, user_lon, ctos_encontradas):
     # Cria DataFrames com os dados das CTOs e do usuário para facilitar a manipulação.
     df_ctos = pd.DataFrame(ctos_encontradas)
     df_user = pd.DataFrame([{'latitude': user_lat, 'longitude': user_lon}])
@@ -616,7 +616,7 @@ def criar_mapa_ctos(user_lat, user_lon, ctos_encontradas):
     return buf
 
 async def criar_mapa_ctos(user_lat, user_lon, ctos_encontradas):
-    return await asyncio.to_thread(criar_mapa_ctos, user_lat, user_lon, ctos_encontradas)
+    return await asyncio.to_thread(mapa_ctos, user_lat, user_lon, ctos_encontradas)
 
 # --- Comando para Solicitar Localização ---
 
@@ -1702,6 +1702,17 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             ExcluirArquivosporExtensao()
 
+async def mensagem_editada(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Este handler recebe todos os updates, mas só age se for uma edição de mensagem.
+    Se for, ele simplesmente chama a função 'handle_mensagem' para processá-la.
+    """
+    # Se o update contiver uma mensagem editada, e essa mensagem tiver texto...
+    if update.edited_message and update.edited_message.text:
+        # Chame a mesma função que lida com mensagens de texto novas.
+        # A lógica dentro de 'handle_mensagem' já sabe como lidar com isso.
+        await handle_mensagem(update, context)
+
 # --- Função Principal de Execução do Bot ---
 
 def main() -> None:
@@ -1717,7 +1728,8 @@ def main() -> None:
         app.add_error_handler(error_handler)
 
         # Handler de Reconexão:
-        app.add_handler(TypeHandler(Update, check_reconnection), group=-1)
+        app.add_handler(MessageHandler(filters.ALL, check_reconnection), group=-1)
+
 
         # Handler de Conversa.
         conv_handler_novo_usuario = ConversationHandler(
@@ -1765,7 +1777,8 @@ def main() -> None:
         # Handler para qualquer mensagem de texto que NÃO seja um comando.
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mensagem))
         # Handler que escuta por edições de mensagens de texto e envia para a mesma função 'handle_mensagem'.
-        app.add_handler(MessageHandler(filters.Update.EDITED_MESSAGE, handle_mensagem))
+        app.add_handler(TypeHandler(Update, mensagem_editada))
+
 
 
         # --- Agendamento de Tarefas ---
