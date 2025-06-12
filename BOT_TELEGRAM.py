@@ -466,14 +466,15 @@ async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
             # Query para inserir um novo usuário ou atualizar um existente caso a id do telegram seja igual.
             query_insert_update = """
-                INSERT INTO usuarios (id_telegram, nome_usuario, matricula, nome_completo, cargo_id, hash_convite)
+                INSERT INTO usuarios (id_telegram, nome_usuario, matricula, nome_completo, cargo_id, hash_convite_usado)
                 VALUES (%s, %s, %s, %s, %s, %s)
+                AS new
                 ON DUPLICATE KEY UPDATE 
-                    nome_usuario = VALUES(nome_usuario), 
-                    matricula = VALUES(matricula), 
-                    nome_completo = VALUES(nome_completo), 
-                    cargo_id = VALUES(cargo_id),
-                    hash_convite = VALUES(hash_convite) -- <-- Adicionado aqui também
+                    nome_usuario = new.nome_usuario, 
+                    matricula = new.matricula, 
+                    nome_completo = new.nome_completo, 
+                    cargo_id = new.cargo_id,
+                    hash_convite_usado = new.hash_convite_usado
             """
             
             await cursor.execute(query_insert_update, (user.id, user.full_name, matricula, nome_completo, cargo_id, hash_convite))
