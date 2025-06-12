@@ -90,7 +90,7 @@ FileName = "WebHook.json"
 # Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-DBUG = 1
+DBUG = 2
 
 
 # --- Inicialização do Token do Bot ---
