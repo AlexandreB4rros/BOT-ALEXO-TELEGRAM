@@ -48,23 +48,28 @@ class IgnoreAttributeErrorFilter(logging.Filter):
 
 async def send_log_to_telegram(message: str):
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    
+    log_escapado = escape(str(message))
+    
     payload = {
         'chat_id': TELEGRAM_GROUP_ID,
-        'text': f"[LOG] {message}", # 
-        'parse_mode': 'Markdown'
+        'text': f"<b>[LOG]</b>\n<pre><code>{log_escapado}</code></pre>",
+        'parse_mode': ParseMode.HTML  
     }
+    
     try:
         timeout = aiohttp.ClientTimeout(total=5)
-        
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
-                    print(f"LOGGING FALLBACK (API ERROR): Status {response.status} ao enviar log.")
+                    response_text = await response.text()
+                    print(f"LOGGING FALLBACK (API ERROR): Status {response.status} ao enviar log. Resposta: {response_text}")
 
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         print(f"LOGGING FALLBACK (NETWORK ERROR): {e}")
     except Exception as e:
         print(f"LOGGING FALLBACK (UNEXPECTED ERROR): {e}")
+
 
 
 logger = logging.getLogger()
@@ -280,13 +285,14 @@ async def notificar_admins_fallback(context: ContextTypes.DEFAULT_TYPE, mensagem
 def check_permission(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        message = update.message or update.edited_message
         user = update.effective_user
-        chat = update.effective_chat
-        
-        if not user or not chat:
-            logger.warning("Recebido um update sem usuário ou chat efetivo. Ignorando verificação de permissão.")
+
+        if not message or not user:
+            logger.warning("Recebido um update sem mensagem ou utilizador efetivo. Ignorando.")
             return
 
+        chat = message.chat
         user_id = user.id
         command_name = func.__name__
         conexao_db = None
@@ -310,7 +316,7 @@ def check_permission(func):
             error_message = f"Erro na verificação de permissão para o comando /{command_name}: {err}"
             logger.error(error_message, exc_info=True)
             await notificar_admins(context, error_message)
-            await chat.send_message("⚠️ Ocorreu um erro ao verificar suas permissões. A equipe de administração foi notificada.")
+            await chat.send_message("⚠️ Ocorreu um erro ao verificar suas permissões. A equipa de administração foi notificada.")
             
         finally:
             if conexao_db:
@@ -321,73 +327,84 @@ def check_permission(func):
 
 # --- Comandos ---
 
-# O decorator @check_permission é aplicado ao comando /cadastrar.
-# Isso significa que a lógica de 'check_permission' será executada antes da lógica de 'cadastrar'.
+# Comando /cadastrar.
 @check_permission
 async def cadastrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    message = update.message or update.edited_message
     conexao_db = None
     try:
         conexao_db = await criar_conexao_db()
         if not conexao_db:
             raise ConnectionError("DB indisponível.")
         
-        # Se o comando for executado sem argumentos (ex: /cadastrar), ele lista os cargos disponíveis.
+        # Se o comando for executado sem argumentos, lista os cargos.
         if len(context.args) != 1:
             async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute("SELECT nome_cargo FROM cargos ORDER BY nome_cargo;")
                 resultados = await cursor.fetchall()
-            lista_cargos = "\n".join([f"  - {item['nome_cargo']}" for item in resultados]) if resultados else "Nenhum cargo encontrado."
-            mensagem_ajuda = f"Uso: `/cadastrar <CARGO>`\n\n*Cargos disponíveis:*\n{lista_cargos}"
-            await update.message.reply_text(mensagem_ajuda, parse_mode='Markdown')
+
+            lista_cargos_segura = "\n".join(
+                [f"  - {escape(item['nome_cargo'])}" for item in resultados]
+            ) if resultados else "Nenhum cargo encontrado."
+
+            mensagem_ajuda = (
+                f"Uso: <code>/cadastrar &lt;CARGO&gt;</code>\n\n"
+                f"<b>Cargos disponíveis:</b>\n{lista_cargos_segura}"
+            )
+            
+            await message.reply_text(mensagem_ajuda, parse_mode=ParseMode.HTML)
             return
 
         # Se o comando tiver um argumento, inicia a geração do convite.
         cargo_solicitado = context.args[0].capitalize()
         async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
-            # Primeiro, verifica se o cargo solicitado existe no banco de dados.
             await cursor.execute("SELECT id FROM cargos WHERE nome_cargo = %s", (cargo_solicitado,))
             resultado_cargo = await cursor.fetchone()
             if not resultado_cargo:
-                await update.message.reply_text(f"❌ Cargo '{cargo_solicitado}' inválido. Verifique os cargos disponíveis com /cadastrar.")
+                await message.reply_text(f"❌ Cargo '{escape(cargo_solicitado)}' inválido. Verifique os cargos com /cadastrar.")
                 return
 
             cargo_id = resultado_cargo['id']
-            # Gera um token aleatório e seguro para ser o código do convite. E Insere na tabela de 'cadastros_pendentes'.
             hash_convite = secrets.token_hex(16)
             query_insert_invite = "INSERT INTO cadastros_pendentes (hash_convite, cargo_id, admin_id) VALUES (%s, %s, %s)"
             await cursor.execute(query_insert_invite, (hash_convite, cargo_id, user.id))
+            
             bot_info = await context.bot.get_me()
             bot_username = bot_info.username
-            cargo = escape(str(cargo_solicitado))
+            cargo_escapado = escape(str(cargo_solicitado))
 
-        mensagem = (
-            f"✅ Convite de cadastro gerado com sucesso!\n\n"
-            f"<b>Cargo:</b> {cargo}\n\n"
-            f"Peça para o novo usuário contatar o bot @{bot_username} e enviar o seguinte comando:\n\n"
-            f"(Clique no texto abaixo para copiar 👇)\n"
-            f"<code>/novo_usuario {hash_convite}</code>")
-        
-        await update.message.reply_text(mensagem, parse_mode=ParseMode.HTML)
-        logger.info(f"Admin {user.id} gerou um convite para o cargo {cargo_solicitado} (ID: {cargo_id})")
+            mensagem = (
+                f"✅ Convite de cadastro gerado com sucesso!\n\n"
+                f"<b>Cargo:</b> {cargo_escapado}\n\n"
+                f"Peça para o novo usuário contatar o bot @{bot_username} e enviar o seguinte comando:\n\n"
+                f"(Clique no texto abaixo para copiar 👇)\n"
+                f"<code>/novo_usuario {hash_convite}</code>")
+            
+            await message.reply_text(mensagem, parse_mode=ParseMode.HTML)
+            logger.info(f"Admin {user.id} gerou um convite para o cargo {cargo_solicitado} (ID: {cargo_id})")
 
     except Exception as e:
-        await update.message.reply_text("Ocorreu um erro ao processar o cadastro.")
+        await message.reply_text("Ocorreu um erro ao processar o cadastro.")
         logger.error(f"Erro no comando /cadastrar: {e}", exc_info=True)
     finally:
         if conexao_db:
             conexao_db.close()
+
 
 # --- Fluxo de Conversa para Cadastro de Novo Usuário ---
 
 # Define os "estados" da conversa.
 VERIFICAR_HASH, RECEBER_MATRICULA, RECEBER_NOME = range(3)
 
-# Função de entrada da conversa, acionada pelo comando /novo_usuario <hash>.
+# Comando /novo_usuario <hash>.
 async def novo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    message = update.message or update.edited_message
+    if not message: return ConversationHandler.END
+
     if not context.args or len(context.args) != 1:
-        await update.message.reply_text("Uso: /novo_usuario <código_de_convite>")
-        return ConversationHandler.END # Encerra a conversa se o uso for incorreto.
+        await message.reply_text("Uso: /novo_usuario <código_de_convite>")
+        return ConversationHandler.END
     
     hash_convite = context.args[0]
     conexao_db = None
@@ -405,32 +422,33 @@ async def novo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             username_text = f"@{user.username}" if user.username else "Não definido"
             
             mensagem_para_admins = (
-                f"🚨 *Tentativa de Cadastro com Convite Inválido*\n\n"
-                f"O usuário abaixo tentou se cadastrar com um código inválido ou já utilizado:\n\n"
-                f"👤 *Nome:* {user.full_name}\n"
-                f"🆔 *ID do Telegram:* `{user.id}`\n"
-                f"🔗 *Username:* {username_text}\n\n"
-                f"O código informado foi:\n`{hash_convite}`"
+                f"🚨 <b>Tentativa de Cadastro com Convite Inválido</b> 🚨\n\n"
+                f"O utilizador abaixo tentou se registar com um código inválido ou já utilizado:\n\n"
+                f"👤 <b>Nome:</b> {escape(user.full_name)}\n"
+                f"🆔 <b>ID do Telegram:</b> <code>{user.id}</code>\n"
+                f"🔗 <b>Username:</b> {escape(username_text)}\n\n"
+                f"O código informado foi:\n<code>{escape(hash_convite)}</code>"
             )
-
             await notificar_admins(context, mensagem_para_admins)
-            
-            await update.message.reply_text("❌ Código de convite inválido ou já utilizado.")
+            await message.reply_text("❌ Código de convite inválido ou já utilizado.")
             return ConversationHandler.END
 
         context.user_data['cadastro_cargo_id'] = resultado['cargo_id']
         context.user_data['cadastro_cargo_nome'] = resultado['nome_cargo']
         context.user_data['cadastro_hash'] = hash_convite
         
-        await update.message.reply_text(f"✅ Convite válido para o cargo de *{resultado['nome_cargo']}*! Por favor, informe sua matrícula:", parse_mode='Markdown')
+        cargo_escapado = escape(resultado['nome_cargo'])
+        mensagem_bem_vindo = f"✅ Convite válido para o cargo de <b>{cargo_escapado}</b>! Por favor, informe a sua matrícula:"
+        await message.reply_text(mensagem_bem_vindo, parse_mode=ParseMode.HTML)
         return RECEBER_MATRICULA
         
     except Exception as e:
         logger.error(f"Erro em /novo_usuario: {e}", exc_info=True)
-        await update.message.reply_text("Ocorreu um erro ao verificar o convite.")
+        await message.reply_text("Ocorreu um erro ao verificar o convite.")
         return ConversationHandler.END
     finally:
         if conexao_db: conexao_db.close()
+
 
 async def receber_matricula(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     message = update.message or update.edited_message
@@ -513,26 +531,29 @@ async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 # --- Funções de Apoio e Comandos ---
 
-# Comando para listar os administradores do grupo, protegido pelo decorator de permissão.
+# Comando /Listar_admins.
 @check_permission
 async def listar_admins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Pega o ID do chat onde o comando foi executado.
-    chat_id = update.effective_chat.id
+    message = update.message or update.edited_message
+    if not message: return
+
+    chat_id = message.chat.id
     try:
         administradores = await context.bot.get_chat_administrators(chat_id)
         if not administradores:
-            await update.message.reply_text("Não foi possível encontrar administradores neste grupo.")
+            await message.reply_text("Não foi possível encontrar administradores neste grupo.")
             return
-        # Monta uma lista de texto formatada com os nomes e IDs dos administradores.
-        lista_texto = ["*Administradores do Grupo*:\n"]
+        
+        lista_texto = ["<b>Administradores do Grupo:</b>"]
         for admin in administradores:
             user = admin.user
-            lista_texto.append(f"- *{user.full_name}* (ID: `{user.id}`)")
-        mensagem = "\n".join(lista_texto)
-        await update.message.reply_text(mensagem, parse_mode='Markdown')
+            lista_texto.append(f"- {escape(user.full_name)} (ID: <code>{user.id}</code>)")
+        
+        mensagem_final = "\n".join(lista_texto)
+        await message.reply_text(mensagem_final, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Erro ao listar administradores: {e}")
-        await update.message.reply_text("Ocorreu um erro ao buscar a lista de administradores. Verifique se o bot tem permissão para isso.")
+        await message.reply_text("Ocorreu um erro ao buscar a lista de administradores. Verifique se o bot tem permissão para isso.")
 
 
 
@@ -633,39 +654,45 @@ async def ctos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Este handler recebe TODAS as mensagens de localização e decide o que fazer com base nas flags definidas em 'user_data'.
 async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    location = update.message.location
+    message = update.message or update.edited_message
+    if not message or not message.location: return
+    
+    location = message.location
     latitude, longitude = location.latitude, location.longitude
     user = update.effective_user
 
-    # Rota 1: Se a flag 'waiting_for_ctos_location' existir...
+    # Rota 1: Buscar CTOs
     if context.user_data.pop('waiting_for_ctos_location', False):
-        await update.message.reply_text("Buscando CTOs em um raio de 150 metros... 📡")
+        await message.reply_text("Buscando CTOs em um raio de 150 metros... 📡")
         ctos_encontradas = await buscar_ctos_proximas(latitude, longitude)
         
-        # Trata os diferentes resultados possíveis da busca.
         if ctos_encontradas is None:
-            await update.message.reply_text("❌ Ocorreu um erro ao acessar o banco de dados.")
+            await message.reply_text("❌ Ocorreu um erro ao acessar o banco de dados.")
         elif not ctos_encontradas:
-            await update.message.reply_text("Nenhuma CTO foi encontrada no raio de 150 metros.")
+            await message.reply_text("Nenhuma CTO foi encontrada no raio de 150 metros.")
         else:
             try:
-                # Gera a imagem do mapa e formata a legenda.
                 mapa_buffer = await criar_mapa_ctos(latitude, longitude, ctos_encontradas)
                 if mapa_buffer:
-                    linhas_ctos = [f"- {cto['cto']} - [Rota](https://maps.google.com/?q={cto['latitude']},{cto['longitude']})" for cto in ctos_encontradas]
+                    # --- CORREÇÃO APLICADA (Legenda do mapa) ---
+                    linhas_ctos = [
+                        f"- {escape(cto['cto'])} - <a href='https://maps.google.com/?q={cto['latitude']},{cto['longitude']}'>Rota</a>" 
+                        for cto in ctos_encontradas
+                    ]
                     nomes_ctos_com_link = "\n".join(linhas_ctos)
-                    # Envia o mapa com a legenda formatada.
+                    caption_text = f"✅ Encontrei {len(ctos_encontradas)} CTO(s) próximas:\n{nomes_ctos_com_link}"
+                    
                     await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
+                        chat_id=message.chat.id,
                         photo=mapa_buffer,
-                        caption=f"✅ Encontrei {len(ctos_encontradas)} CTO(s) próximas:\n{nomes_ctos_com_link}",
-                        parse_mode='Markdown'
+                        caption=caption_text,
+                        parse_mode=ParseMode.HTML
                     )
                 else:
-                    await update.message.reply_text("❌ Erro ao gerar o buffer do mapa.")
+                    await message.reply_text("❌ Erro ao gerar o buffer do mapa.")
             except Exception as e:
                 logger.error(f"Falha ao gerar o mapa para /ctos: {e}", exc_info=True)
-                await update.message.reply_text("❌ Ocorreu um erro ao gerar o mapa.")
+                await message.reply_text("❌ Ocorreu um erro ao gerar o mapa.")
         return
 
     # Rota 2: Se a flag for 'waiting_for_location' (usada por /novaCTO)...
@@ -696,10 +723,16 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
     else:
         logger.info(f"Localização avulsa recebida de {user.full_name}")
         accuracy = f"Precisão: {location.horizontal_accuracy:.0f} metros" if location.horizontal_accuracy else ""
-        mensagem = (f"📍 **Informações da Localização**\n\n"
-                    f"Latitude: `{latitude}`\nLongitude: `{longitude}`\n{accuracy}\n\n"
-                    f"[Abrir no Google Maps](https://maps.google.com/?q={latitude},{longitude})")
-        await update.message.reply_text(mensagem, parse_mode='Markdown')
+        
+        mensagem_final = (
+            f"📍 <b>Informações da Localização</b>\n\n"
+            f"Latitude: <code>{latitude}</code>\n"
+            f"Longitude: <code>{longitude}</code>\n"
+            f"{escape(accuracy)}\n\n"
+            f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>"
+        )
+        await message.reply_text(mensagem_final, parse_mode=ParseMode.HTML)
+
 
 
 # --- Configuração de Logging para o Telegram ---
@@ -939,50 +972,76 @@ async def VerificarTemplatemporPOP(DirTemplate, PopInformado_user, update):
 
 
 # Handler para o comando /ajuda.
-async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Envia a mensagem de ajuda completa, seguindo o padrão de formatação de texto original.
+    """
+    message = update.message or update.edited_message
+    if not message:
+        return
 
+    user = update.effective_user
+    logger.info(f"Comando /ajuda solicitado por: {user.full_name} ({user.id})")
+
+    # Lista de comandos formatada no estilo original
     comandos = [
         "| Ajuda - BOT-ALEXO",
+
         "\n\n- Atividades 🌟",
-        "    /Atividades <POP>",
-        "    Verifica se existem atividades pendentes no template.",
-        "    EX: /Atividades TIE",
+        "    /atividades <POP>",
+        "    Verifica atividades e gera de acordo com as atividades pendentes no template.",
+        "    EX: /atividades CTO",
 
-        "\n\n- Checar 🔍",
-        "    /Checar <CTO> <FSAN>",
-        "    Verifica OLT/SLOT/PON do cliente na CTO.",
-        "    EX: /Checar TIE-001 FHTT0000000",
+        "\n\n- Checar �",
+        "    /checar <CTO> <FSAN>",
+        "    Verifica OLT/SLOT/PON de um cliente na CTO.",
+        "    EX: /checar CTO-001 FHTT0000000",
 
-        "\n\n- Localizar 📍",
-        "    /Localizar <CTO>",
-        "    Retorna a localização de uma CTO.",
-        "    EX: /Localizar TIE-001",
+        "\n\n- Localizar CTO 📍",
+        "    /localizar <CTO>",
+        "    Retorna a localização geográfica de uma CTO.",
+        "    EX: /localizar CTO-001",
+        
+        "\n\n- CTOs Próximas 🗺️",
+        "    /ctos",
+        "    Retorna a localização para de CTOs próximas.",
+        "    EX: /ctos",
+
+        "\n\n- Listar IDs 📋",
+        "    /listarIDs <POP> <OLT/SLOT/PON>",
+        "    Lista IDs de CTOs disponíveis em uma PON.",
+        "    EX: /listarIDs POP 1/1/1",
+        
+        "\n\n- Id",
+        "    /id"
+        "    Informa o ID do seu usuário e do chat atual.",
 
         "\n\n- Input 📝",
-        "    /Input <CTO> <SPLITER>",
-        "    Inputa as informações de data e splitter para o template.",
-        "    EX: /Input TIE-001 1/16",
+        "    /input <CTO> <SPLITTER>",
+        "    Inputa data e splitter no template.",
+        "    EX: /input CTO-001 1/16",
 
-        "\n\n- Insert 📝",
-        "    /Insert <CTO> <OLT/SLOT/PON>",
-        "    Inputa as informações da CTO e splitter para o template na aba checar.",
-        "    EX: /Insert TIE-001 1/1/1",
+        "\n\n- Informações",
+        "    Exibe informações, versão e criadores do bot."
+        "    EX: /info",
 
-        "\n\n- Listar IDS 📋",
-        "    /ListarIDs <POP> <OLT/SLOT/PON>",
-        "    /TESTE", 
-        "    EX: /Input TIE-001 1/16", 
+        "\n\n- Insert ➡️",
+        "    /insert <CTO> <OLT/SLOT/PON>",
+        "    Inputa OLT/SLOT/PON na aba 'checar' do template.",
+        "    EX: /insert CTO-001 1/1/1",
 
         "\n\n- Nova CTO ➕",
-        "    /NovaCTO <POP> <OLT/SLOT/PON> <SPLITER>",
-        "    CTO QUE NÃO EXISTE NO KMZ.",
-        "    EX: /NovaCTO TIE 1/1/1 1/16",
+        "    /novaCTO <POP> <OLT/SLOT/PON> <SPLITTER>",
+        "    Adicionar uma CTO que não está no KMZ.",
+        "    EX: /novaCTO CTO 1/1/1 1/16",
+        
+        "\n\n- Versão",
+        "    /versao",
+        "    Apresenta a versão atual e os créditos.",
 
-        "\n\n| Informações ℹ️:",
-        f"    Versão: {__version__}",
-        f"    Criadores: {__author__}",
-        f"    Créditos:   {__credits__}"
+        "\n\n- Ajuda Administração",
+        "    /ajudaadm",
+        "    Lista os Comandos de Administrador"
     ]
 
     comandos_texto = "\n".join(comandos)
@@ -1194,40 +1253,58 @@ async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_title = update.effective_chat.title or "Chat Privado"
     
     # Monta uma única string de texto com todos os comandos administrativos e suas descrições.
-    comandos = (
+    comandos =[
         "| AjudaAdm:"
         "\n\n>>> Principais comandos"
-        "\n\n - EXIBIR O ID DO GRUPO:"
-        "\n   /id"
-        "\n\n- EXIBIR CIDADES SALVAS:"
-        "\n   /ExibirCidade"
-        "\n\n- EXCLUIR TEMPLATE EXISTENTE:"
-        "\n   /ExcluirTemplate <cidade>"
-        "\n\n- ADICIONAR NOVO TEMPLATE:"
-        "\n   /AddTemplate <cidade> <POP> <WebHook>" 
-        "\n\n- Compartilhar Webhook.json:"
-        "\n   /CWH"
-        "\n\n- Converter Arquivo KMZ ou KML em arquivo .XLSX:"
-        "\n   /Convert"
-        "\n   Fluxo do comando:"
-        "\n       0. Finalizar o comando /Convert"
-        "\n       1. Enviar o arquivo KMZ ou KML para o Driver:"
-        "\n           - Informar o pop da cidade que deseja salvar o arquivo"
-        "\n       2. Insertar os points no template e salvar os arquivos"
-        "\n           - Informar o pop da cidade que deseja salvar o arquivo"
-        "\n\n- Baixar KMZ da pasta 'kmz e kml' no drive:"
-        "\n   /BaixarKMZ <POP>"
-        "\n\n- Gerar KML BASE a partir do template:"
-        "\n   /GerarKMZ <POP>"
-        "\n\n>>> Pastas compartilhadas"
-        "\n\n- Grupo de logger:"
-        "\n   https://t.me/+Ij5OdRrCgAVkNTIx"
-        "\n\n- One Driver Backup:"
-        "\n   https://1drv.ms/f/s!AltzaXN7TtjqkqR0OQJ0jYa9VSyhWg?e=bb1LEy"
-        "\n\n| *Quando o nome da cidade conter 'espaço' lembre-se de substituir por hífen '-'."
-    )
+        "\n\n- Cadastrar",
+        "    Cadastrar <CARGO>",
+        "    (Admin) Gera um link de convite para um novo usuário.",
+        "    EX: /cadastrar Tecnico",
+        
+        "\n\n- Exibir Cidades",
+        "    /exibircidades",
+        "    Lista todas as cidades e POPs configurados.",
 
-    await context.bot.send_message(chat_id=chat_id, text=comandos)
+        "\n\n- Adicionar Template"
+        "    /AdicionarTemplate <CIDADE> <POP> <WEBHOOK>",
+        "    Adiciona um novo link de template cidade.",
+        "    EX: /AdicionarTemplate RIO_CLARO POP HTTP://...",
+
+        "\n\n- Excluir Template"
+        "    /ExcluirTemplate <POP>",
+        "    Remove uma configuração de template pelo POP.",
+        "    /ExcluirTemplate POP",
+
+        "\n\n- Configuração Drive",
+        "    /configdrive <CAMINHO>",
+        "    Define o diretório raiz do Drive local.",
+        "    /configdrive G:/MEU DRIVE/FASTERNET...",
+
+        "\n\n- Compartilhar Webhook",
+        "    /CWH",
+        "    Envia o arquivo de configuração WebHook.json.",
+
+        "\n\n- Converter Arquivos",
+        "    /convert",
+        "    Converter um arquivo KML/KMZ em XLSX",
+        
+        "\n\n- Baixa Arquivos KMZ",
+        "    /baixarkmz <POP>",
+        "    Baixa o arquivo KMZ/KML do Drive.",
+        "    /baixarkmz POP",
+
+        "\n\n- Gerar KMZ",
+        "    /gerarkmzatualizado <POP>",
+        "    Gera um arquivo KML base a partir do template.",
+        "    /gerarkmzatualizado POP",
+        
+        "\n\n- Listar Admins",
+        "    /listar_admins",
+        "    Exibe a lista de administradores do grupo."
+    ]
+    
+    comandos_texto = "\n".join(comandos)
+    await context.bot.send_message(chat_id=chat_id, text=comandos_texto)
     logger.info(f"/ajudaadm - Usuário:{user.first_name}, Grupo:{chat_title}")
     
 # Comando /CWH (Compartilhar WebHook).
