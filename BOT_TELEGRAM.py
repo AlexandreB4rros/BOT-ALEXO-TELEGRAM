@@ -97,7 +97,7 @@ FileName = "WebHook.json"
 # Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-DBUG = 1
+DBUG = 2
 
 
 # --- Inicialização do Token do Bot ---
@@ -121,7 +121,7 @@ ErroE101 = "❌ Atenção, excesso de argumentos. Verifique o comando informado 
 ErroP101 = "❌ Atenção, 'POP' não informado!"
 ErroP102 = "❌ Atenção, 'POP' não existe na lista de templates. Verifique se foi informado corretamente ou notifique a equipe interna."
 ErroF101 = "❌ Atenção, 'FSAN/SN' não informado para a consulta. Verifique o comando e tente novamente!"
-ErroF102 = "❌ Atenção, o formato do campo 'FSAN/SN' está incorreto!"
+ErroF102 = "❌ Atenção, O formato do campo 'FSAN/SN' está incorreto!"
 ErroS101 = "❌ Atenção, 'SPLITTER' não informado. Verifique o comando e tente novamente!"
 ErroN101 = "❌ Atenção, 'OLT/SLOT/PON' não informado. Verifique o comando e tente novamente!"
 ErroN102 = "❌ Atenção, 'OLT/SLOT/PON' contém mais de duas '/'. Verifique o comando e tente novamente!"

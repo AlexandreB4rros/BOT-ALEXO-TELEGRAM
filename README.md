@@ -1,142 +1,97 @@
-# BOT TELEGRAM - Alexo
+# BOT-ALEXO-TELEGRAM
 
-## Introdução
+## Visão Geral
 
-O BOT TELEGRAM Alexo é uma solução automatizada para integração de operações de rede, manipulação de arquivos (KML, KMZ, XLSX), consulta e atualização de dados via Google Apps Script e interação direta com grupos do Telegram. Ele foi desenvolvido para facilitar o gerenciamento de templates, CTOs, POPs e atividades relacionadas a redes ópticas, além de oferecer comandos administrativos e de consulta para equipes técnicas.
+Este projeto implementa um bot do Telegram chamado **Alexo**, voltado para automação de rotinas técnicas, administrativas e operacionais, especialmente para equipes que trabalham com redes ópticas (CTO, POP, OLT/SLOT/PON, etc). O bot permite manipulação de arquivos, integração com planilhas, localização geográfica, notificações administrativas e gerenciamento de templates via comandos no chat.
 
----
-## Resumo das Funções do Código
+## Estrutura do Projeto
 
-### Utilitários e Manipulação de Arquivos
+- **BOT_TELEGRAM.py**: Arquivo principal do bot, contendo toda a lógica de comandos, handlers, integração com arquivos, banco de dados e notificações.
+- **admins_fallback.json**: Backup da lista de administradores.
+- **WebHook.json**: Configuração de webhooks para integração com planilhas/templates.
+- **arquv/**: Pasta com arquivos de templates e planilhas de exemplo.
+- **Scripts_Alexo/**: Módulos auxiliares, como seleção de token e versionamento.
+- **build/**: Arquivos gerados pelo processo de build (PyInstaller).
 
-- **ExcluirArquivos(caminho_arquivo):**  
-  Exclui todos os arquivos que possuem o mesmo nome base e extensão no diretório informado.
+## Principais Funcionalidades
 
-- **ExcluirArquivosporExtensao():**  
-  Exclui todos os arquivos com extensão `.xlsx`, `.kml` ou `.kmz` no diretório atual.
+### 1. Inicialização e Configuração
 
-- **kml_to_xlsx(kml_file, xlsx_file):**  
-  Converte um arquivo KML em uma planilha XLSX, extraindo os placemarks e suas coordenadas.
+- Carrega variáveis de ambiente do arquivo `.env`.
+- Seleciona o token do bot conforme o modo de debug.
+- Configura logging detalhado, inclusive com envio de logs para o Telegram.
 
-- **extract_kml_from_kmz(kmz_file, extract_to):**  
-  Extrai o arquivo KML de dentro de um arquivo KMZ e renomeia para facilitar o uso.
+### 2. Comandos do Bot
 
-- **encontrar_arquivo_kml_kmz(DirArquivo):**  
-  Procura e retorna o caminho de um arquivo `.kml` ou `.kmz` dentro de um diretório.
+- `/start` ou `/ajuda`: Exibe todos os comandos disponíveis e suas descrições.
+- `/atividades <POP>`: Verifica atividades pendentes em um template.
+- `/checar <CTO> <FSAN>`: Consulta OLT/SLOT/PON de um cliente.
+- `/localizar <CTO>`: Retorna a localização geográfica de uma CTO.
+- `/ctos`: Mostra CTOs próximas à localização enviada.
+- `/listarIDs <POP> <OLT/SLOT/PON>`: Lista IDs de CTOs disponíveis em uma PON.
+- `/input <CTO> <SPLITTER>`: Inputa data e splitter no template.
+- `/insert <CTO> <OLT/SLOT/PON>`: Inputa OLT/SLOT/PON na aba 'checar' do template.
+- `/novaCTO <POP> <OLT/SLOT/PON> <SPLITTER>`: Adiciona uma nova CTO.
+- `/convert`: Converte arquivos KML/KMZ em XLSX.
+- `/baixarkmz <POP>`: Baixa arquivos KMZ/KML do drive.
+- `/gerarkmzatualizado <POP>`: Gera arquivo KML base a partir do template.
+- `/id`: Mostra o ID do usuário e do chat.
+- `/info`: Exibe informações do bot, versão e créditos.
 
----
+### 3. Comandos Administrativos
 
-### Manipulação de Dados e Configuração
+- `/cadastrar <CARGO>`: Gera link de convite para novo usuário.
+- `/exibircidades`: Lista cidades e POPs configurados.
+- `/AdicionarTemplate <CIDADE> <POP> <WEBHOOK>`: Adiciona novo template ao WebHook.json.
+- `/ExcluirTemplate <POP>`: Remove template do WebHook.json.
+- `/configdrive <CAMINHO>`: Define diretório raiz do drive local.
+- `/CWH`: Envia o arquivo WebHook.json.
+- `/listar_admins`: Exibe lista de administradores.
+- `/AjudaAdm`: Lista comandos administrativos.
 
-- **ListaCidades():**  
-  Retorna uma lista formatada de cidades e POPs cadastrados no arquivo `WebHook.json`.
+### 4. Manipulação de Arquivos
 
-- **buscar_webhook_por_pop(pop):**  
-  Busca e retorna o link do webhook associado ao POP informado.
+- Conversão entre formatos KML/KMZ e XLSX usando `openpyxl` e `simplekml`.
+- Geração de mapas com localização de CTOs usando `matplotlib` e `contextily`.
+- Manipulação assíncrona de arquivos com `aiofiles`.
 
-- **buscar_cidade_por_pop(pop):**  
-  Busca e retorna o nome da cidade associada ao POP informado.
+### 5. Integração com Banco de Dados
 
-- **buscar_dir_drive():**  
-  Retorna o diretório do drive salvo no arquivo `config_drive.json`.
+- Conexão assíncrona com banco de dados MySQL via `aiomysql` para autenticação, cadastro e fallback de administradores.
 
----
+### 6. Sistema de Permissões
 
-### Integração com Telegram e Google Apps Script
+- Decorator `@check_permission` para restringir comandos a usuários autorizados.
 
-- **send_log_to_telegram(message):**  
-  Envia mensagens de log diretamente para um grupo do Telegram.
+### 7. Agendamento de Tarefas
 
-- **TelegramHandler:**  
-  Handler de logging personalizado para enviar logs ao Telegram.
+- Atualização diária da lista de administradores via `JobQueue` do `python-telegram-bot`.
 
-- **fetch_data(webhook_link, payload):**  
-  Realiza uma requisição HTTP POST assíncrona para o webhook do Google Apps Script e retorna a resposta.
+### 8. Tratamento de Erros
 
----
+- Handlers centralizados para erros, com notificações para administradores e logs detalhados.
 
-### Comandos do Bot (Handlers)
+## Fluxo Principal
 
-- **ajuda(update, context):**  
-  Envia uma mensagem com a lista de comandos disponíveis e informações do bot.
+1. O bot é inicializado e configura todos os handlers de comandos e mensagens.
+2. Usuários interagem via comandos no chat do Telegram.
+3. O bot executa operações de leitura/escrita em arquivos, manipulação de planilhas, localização geográfica e integração com banco de dados conforme o comando.
+4. Logs e notificações são enviados para administradores em caso de erro ou eventos importantes.
 
-- **AjudaAdm(update, context):**  
-  Envia uma mensagem com comandos administrativos e links úteis.
+## Tecnologias Utilizadas
 
-- **Info(update, context):**  
-  Envia informações sobre o bot, versão, criador e créditos.
+- Python 3.11+
+- [python-telegram-bot](https://python-telegram-bot.org/)
+- openpyxl, pandas, matplotlib, contextily, simplekml, aiomysql, aiofiles, dotenv
 
-- **id(update, context):**  
-  Exibe o ID do grupo, nome do grupo e ID do usuário.
+## Como Executar
 
-- **CWH(update, context):**  
-  Envia o arquivo `WebHook.json` para o chat.
-
-- **ExibirCidade(update, context):**  
-  Exibe a lista de cidades cadastradas.
-
-- **AdcionarTemplate(update, context):**  
-  Adiciona um novo template (cidade, POP e webhook) ao arquivo `WebHook.json`.
-
-- **ExcluirTemplate(update, context):**  
-  Remove um POP/cidade do arquivo `WebHook.json`.
-
-- **atividades(update, context):**  
-  Consulta atividades pendentes para um POP via webhook.
-
-- **checar(update, context):**  
-  Consulta informações de OLT/SLOT/PON de uma CTO via webhook.
-
-- **localizar_cto(update, context):**  
-  Retorna a localização de uma CTO via webhook.
-
-- **input(update, context):**  
-  Inputa informações de splitter para uma CTO no template via webhook.
-
-- **insert(update, context):**  
-  Inputa informações de CTO e OLT/SLOT/PON no template via webhook.
-
-- **novaCTO(update, context):**  
-  Inicia o processo para adicionar uma nova CTO, solicitando a localização do usuário.
-
-- **handle_location(update, context):**  
-  Recebe a localização enviada pelo usuário e finaliza o cadastro da nova CTO.
-
-- **listarIDs(update, context):**  
-  Lista os IDs disponíveis para um determinado POP e OLT/SLOT/PON.
-
-- **convert(update, context):**  
-  Solicita ao usuário o envio de um arquivo KML/KMZ para conversão.
-
-- **handle_arquivo(update, context):**  
-  Processa o arquivo KML/KMZ enviado, converte para XLSX e oferece opções ao usuário.
-
-- **configdrive(update, context):**  
-  Salva o diretório do drive informado pelo usuário no arquivo de configuração.
-
-- **baixarkmz(update, context):**  
-  Envia para o usuário o arquivo KML/KMZ encontrado no diretório do drive da cidade/POP informado.
-
-- **gerarkmzatualizado(update, context):**  
-  Gera um novo arquivo KML base a partir do template da cidade/POP informado.
-
-- **handle_mensagem(update, context):**  
-  Gerencia o fluxo de mensagens do usuário, especialmente durante operações de conversão e input de dados.
+1. Configure o arquivo `.env` com as variáveis necessárias.
+2. Instale as dependências com `pip install -r requirements.txt`.
+3. Execute o bot com `python BOT_TELEGRAM.py`.
 
 ---
 
-### Auxiliares para Planilhas
-
-- **converter_planilha_template_para_kml(...):**  
-  Gera um arquivo KML a partir de uma planilha XLSX, usando os dados da aba KMZ.
-
-- **DE_KMZ_BASE_PARA_TEMPLATE(arquivo_origem, arquivo_destino):**  
-  Copia dados das colunas A, B e C de uma planilha de origem para a aba "KMZ" de uma planilha de destino.
-
-- **VerificarTemplatemporPOP(DirTemplate, PopInformado_user, update):**  
-  Verifica se existe um template para o POP informado no diretório do drive.
+Para detalhes de cada comando, utilize `/ajuda` ou `/AjudaAdm` no próprio bot.
 
 ---
-
-
-
