@@ -13,6 +13,7 @@ import secrets
 from datetime import time as dt_time
 import pytz
 from pathlib import Path
+import re
 
 # Importações de bibliotecas de terceiros (instaladas via pip)
 import aiohttp
@@ -33,6 +34,7 @@ import asyncio
 import aiofiles
 from html import escape
 from telegram.constants import ParseMode
+import httpx
 
 caminho_env = Path(__file__).parent / ".env"
 
@@ -214,10 +216,6 @@ async def atualizar_admins_fallback(context: ContextTypes.DEFAULT_TYPE):
 # Função principal para notificar administradores.
 # A primeira tentativa é sempre buscar a lista de admins direto do banco de dados.
 async def notificar_admins(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: str):
-    """
-    Busca a lista de administradores no DB e os notifica sobre um erro
-    de forma segura, usando ParseMode.HTML.
-    """
     conexao_db = None
     try:
         conexao_db = await criar_conexao_db()
@@ -258,7 +256,7 @@ async def notificar_admins(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: st
 async def notificar_admins_fallback(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: str):
     logger.warning("Acionando modo de notificação de fallback (lendo do arquivo JSON).")
     try:
-        # Abre o arquivo JSON que contém a lista de admins salva de forma assíncrona.
+        # Abre o arquivo JSON que contém a lista de admins salva.
         async with aiofiles.open("admins_fallback.json", "r", encoding="utf-8") as f:
             dados = json.loads(await f.read())
             admin_ids = dados.get("admin_ids", [])
@@ -282,14 +280,21 @@ async def notificar_admins_fallback(context: ContextTypes.DEFAULT_TYPE, mensagem
 
 # --- Decorator de Verificação de Permissão ---
 
+
 def check_permission(func):
+    """
+    Decorador para verificar se:
+    1. O usuario está ativo.
+    2. O usuario tem permissão para o comando.
+    3. Atualiza a data de ultima interação do usuario.
+    """
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         message = update.message or update.edited_message
         user = update.effective_user
 
         if not message or not user:
-            logger.warning("Recebido um update sem mensagem ou utilizador efetivo. Ignorando.")
+            logger.warning("Recebido um update sem mensagem ou usuario efetivo. Ignorando.")
             return
 
         chat = message.chat
@@ -303,27 +308,46 @@ def check_permission(func):
                 raise ConnectionError("DB indisponível para checar permissão.")
                 
             async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
-                query = "SELECT 1 FROM usuarios u JOIN permissoes p ON u.cargo_id = p.cargo_id JOIN comandos cmd ON p.comando_id = cmd.id WHERE u.id_telegram = %s AND cmd.nome_comando = %s LIMIT 1;"
+                # 1. Verifica se o utilizador está ativo E se tem permissão
+                query = """
+                    SELECT u.esta_ativo 
+                    FROM usuarios u
+                    JOIN permissoes p ON u.cargo_id = p.cargo_id 
+                    JOIN comandos cmd ON p.comando_id = cmd.id 
+                    WHERE u.id_telegram = %s AND cmd.nome_comando = %s 
+                    LIMIT 1;
+                """
                 await cursor.execute(query, (user_id, command_name))
                 resultado = await cursor.fetchone()
 
-            if resultado:
-                await func(update, context, *args, **kwargs)
-            else:
-                await chat.send_message("❌ Você não tem permissão para usar este comando.")
-                
+                if resultado:
+                    # Verifica se a conta está ativa
+                    if not resultado['esta_ativo']:
+                        await chat.send_message("❌ A sua conta está inativa por falta de uso. Por favor, Entre em contato com seu supervisor.")
+                        return
+
+                    # 2. Atualiza a data de última interação
+                    await cursor.execute(
+                        "UPDATE usuarios SET ultima_interacao = NOW() WHERE id_telegram = %s",
+                        (user_id,)
+                    )
+                    
+                    # 3. Executa o comando solicitado
+                    await func(update, context, *args, **kwargs)
+                else:
+                    await chat.send_message("❌ Você não tem permissão para usar este comando.")
+                    
         except Exception as err:
             error_message = f"Erro na verificação de permissão para o comando /{command_name}: {err}"
             logger.error(error_message, exc_info=True)
             await notificar_admins(context, error_message)
-            await chat.send_message("⚠️ Ocorreu um erro ao verificar suas permissões. A equipa de administração foi notificada.")
-            
+            await chat.send_message("⚠️ Ocorreu um erro ao verificar as suas permissões. A equipe de administração foi notificada.")
+
         finally:
             if conexao_db:
                 conexao_db.close()
                 
     return wrapper
-
 
 # --- Comandos ---
 
@@ -372,11 +396,11 @@ async def cadastrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             bot_info = await context.bot.get_me()
             bot_username = bot_info.username
-            cargo_escapado = escape(str(cargo_solicitado))
+            cargo = escape(str(cargo_solicitado))
 
             mensagem = (
                 f"✅ Convite de cadastro gerado com sucesso!\n\n"
-                f"<b>Cargo:</b> {cargo_escapado}\n\n"
+                f"<b>Cargo:</b> {cargo}\n\n"
                 f"Peça para o novo usuário contatar o bot @{bot_username} e enviar o seguinte comando:\n\n"
                 f"(Clique no texto abaixo para copiar 👇)\n"
                 f"<code>/novo_usuario {hash_convite}</code>")
@@ -437,8 +461,17 @@ async def novo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         context.user_data['cadastro_cargo_nome'] = resultado['nome_cargo']
         context.user_data['cadastro_hash'] = hash_convite
         
-        cargo_escapado = escape(resultado['nome_cargo'])
-        mensagem_bem_vindo = f"✅ Convite válido para o cargo de <b>{cargo_escapado}</b>! Por favor, informe a sua matrícula:"
+        cargo = escape(resultado['nome_cargo'])
+        mensagem_bem_vindo = f"✅ Convite válido para o cargo de <b>{cargo}</b>!\n\n"
+        mensagem_bem_vindo += f"Olá, <b>{escape(update.effective_user.full_name)}</b>! Bem-vindo(a) ao processo de cadastro.\n\n"
+        mensagem_bem_vindo += f"Para concluir o cadastro, precisamos de algumas informações suas.\n\n"
+        mensagem_bem_vindo += f"Primeiro, informe a sua matrícula, ela deve ser a mesma constando na plataforma LG ou no crachá de funcionário (Lembre-se que a matrícula é um número de até 6 dígitos).\n"
+        mensagem_bem_vindo += f"Caso tenha duvidas acesse: https://login.lg.com.br/login/desktop e faça o login utilizando os dados informados para acesso a plataforma.\n"
+        mensagem_bem_vindo += f"Na pagina principal localize o icone do perfil e nele constará a matrícula ao lado do seu nome.\n"
+        mensagem_bem_vindo += f"Se precisar de ajuda, use o comando: <code>'/cancelar_cadastro'</code> a qualquer momento para cancelar o processo (Você pode reiniciar o processo de cadastro a qualquer momento, com o mesmo convite recebido).\n\n"
+        mensagem_bem_vindo += f"Vamos começar!\n\n"
+        mensagem_bem_vindo += f"Por favor, informe sua matrícula:"
+
         await message.reply_text(mensagem_bem_vindo, parse_mode=ParseMode.HTML)
         return RECEBER_MATRICULA
         
@@ -455,6 +488,11 @@ async def receber_matricula(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not message:
         return ConversationHandler.END
     matricula = message.text
+    if not matricula.isdigit() or len(matricula) > 6:
+        await message.reply_text("❌ Matrícula inválida. Por favor, informe apenas números com no máximo 6 dígitos.")
+        # Permanece no mesmo estado para aguardar uma nova tentativa
+        return RECEBER_MATRICULA
+    
     # Armazena a matrícula recebida.
     context.user_data['cadastro_matricula'] = matricula
     logger.info(f"Usuário {update.effective_user.id} informou a matrícula: {matricula}")
@@ -505,7 +543,7 @@ async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
 
     except aiomysql.IntegrityError:
-        await update.message.reply_text("❌ Falha no cadastro. A matrícula informada já está em uso por outro usuário.")
+        await update.message.reply_text(f"❌ Falha no cadastro. A matrícula informada {matricula} já está em uso por outro usuário. Acesse https://login.lg.com.br/login/desktop e verifique se a matrícula enviada está correta.")
         return ConversationHandler.END
     except Exception as err:
         logger.error(f"Erro de DB na finalização do cadastro: {err}", exc_info=True)
@@ -520,7 +558,7 @@ async def receber_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         for key in ['cadastro_cargo_id', 'cadastro_cargo_nome', 'cadastro_hash', 'cadastro_matricula']:
             context.user_data.pop(key, None)
 
-# Função para ser usada como um 'handler' de cancelamento dentro de um ConversationHandler.
+# Comando /cancelar_cadastro.
 async def cancelar_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Percorre uma lista de chaves e remove cada uma do 'user_data'.
     for key in ['cadastro_cargo_id', 'cadastro_cargo_nome', 'cadastro_hash', 'cadastro_matricula']:
@@ -655,13 +693,53 @@ async def ctos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Este handler recebe TODAS as mensagens de localização e decide o que fazer com base nas flags definidas em 'user_data'.
 async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message or update.edited_message
-    if not message or not message.location: return
     
-    location = message.location
-    latitude, longitude = location.latitude, location.longitude
+    latitude, longitude = None, None
+
+    # --- Extração Unificada de Coordenadas ---
+    if message and message.location:
+        latitude, longitude = message.location.latitude, message.location.longitude
+    elif message and message.text:
+        # Lógica de extração de texto (com todas as tentativas)
+        direct_match = re.search(r"(-?\d+\.\d+)[, ]+(-?\d+\.\d+)", message.text)
+        if direct_match:
+            latitude, longitude = map(float, direct_match.groups())
+        else:
+            url_match = re.search(r"https?://\S+", message.text)
+            if url_match:
+                url = url_match.group(0)
+                try:
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+                    async with httpx.AsyncClient(follow_redirects=True) as client:
+                        response = await client.get(url, headers=headers, timeout=10)
+                    
+                    final_url = str(response.url)
+                    
+                    match_url = (re.search(r"/@(-?\d+\.\d+),(-?\d+\.\d+)", final_url) or
+                                 re.search(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", final_url) or
+                                 re.search(r"[?&](?:q|ll|query)=(-?\d+\.\d+),(-?\d+\.\d+)", final_url))
+                    
+                    if match_url:
+                        latitude, longitude = map(float, match_url.groups())
+                    else:
+                        page_content = response.text
+                        match_html = re.search(r'\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]', page_content)
+                        if match_html:
+                            latitude, longitude = map(float, match_html.groups())
+                except Exception as e:
+                    logger.error(f"Falha crítica ao processar URL '{url}': {e}", exc_info=True)
+
+    # --- Validação e Saída se não houver coordenadas ---
+    if latitude is None:
+        if context.user_data.get('waiting_for_ctos_location') or context.user_data.get('waiting_for_location'):
+            await message.reply_text("Localização não reconhecida. Por favor, envie uma localização válida ou um link do mapa.")
+        return
+    
     user = update.effective_user
 
-    # Rota 1: Buscar CTOs
+    # --- Lógica de Rotas ---
+    
+    # Rota 1: Buscar CTOs (aceita link ou nativa)
     if context.user_data.pop('waiting_for_ctos_location', False):
         await message.reply_text("Buscando CTOs em um raio de 150 metros... 📡")
         ctos_encontradas = await buscar_ctos_proximas(latitude, longitude)
@@ -674,7 +752,6 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
             try:
                 mapa_buffer = await criar_mapa_ctos(latitude, longitude, ctos_encontradas)
                 if mapa_buffer:
-                    # --- CORREÇÃO APLICADA (Legenda do mapa) ---
                     linhas_ctos = [
                         f"- {escape(cto['cto'])} - <a href='https://maps.google.com/?q={cto['latitude']},{cto['longitude']}'>Rota</a>" 
                         for cto in ctos_encontradas
@@ -694,10 +771,13 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
                 logger.error(f"Falha ao gerar o mapa para /ctos: {e}", exc_info=True)
                 await message.reply_text("❌ Ocorreu um erro ao gerar o mapa.")
         return
-
-    # Rota 2: Se a flag for 'waiting_for_location' (usada por /novaCTO)...
+        
+    # Rota 2: Nova CTO (aceita link ou nativa)
     elif context.user_data.pop('waiting_for_location', False):
-        await update.message.reply_text(f"📍 Localização para /novaCTO recebida: {latitude}, {longitude}\nEnviando para o template...")
+        await update.message.reply_text(f"📍 <b>Informações da Localização</b>\n\n"
+                f"Latitude/Longitude: <code>{latitude}, {longitude}</code>\n"
+                f"{escape(accuracy)}\n\n"
+                f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>\n\n""Enviando para o template...")
         # Recupera outras informações salvas.
         pop = context.user_data.pop('pop', None)
         olt_slot_pon = context.user_data.pop('olt_slot_pon', None)
@@ -719,21 +799,21 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(data.get("mensagem", "Ocorreu um erro na resposta do servidor."))
         return
     
-    # Rota 3 (Padrão): Se a localização for enviada sem um contexto específico.
+    # Rota 3 (Padrão): Apenas localização NATIVA
     else:
-        logger.info(f"Localização avulsa recebida de {user.full_name}")
-        accuracy = f"Precisão: {location.horizontal_accuracy:.0f} metros" if location.horizontal_accuracy else ""
+        if message and message.location:
+            # Se for uma localização nativa, executa a Rota 3 normalmente.
+            logger.info(f"Processando Rota 3: Localização nativa avulsa de {user.full_name}")
+            accuracy = f"Precisão: {message.location.horizontal_accuracy:.0f} metros" if message.location.horizontal_accuracy else ""
+            
+            mensagem_final = (
+                f"📍 <b>Informações da Localização</b>\n\n"
+                f"Latitude/Longitude: <code>{latitude}, {longitude}</code>\n"
+                f"{escape(accuracy)}\n\n"
+                f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>"
+            )
+            await message.reply_text(mensagem_final, parse_mode=ParseMode.HTML)
         
-        mensagem_final = (
-            f"📍 <b>Informações da Localização</b>\n\n"
-            f"Latitude: <code>{latitude}</code>\n"
-            f"Longitude: <code>{longitude}</code>\n"
-            f"{escape(accuracy)}\n\n"
-            f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>"
-        )
-        await message.reply_text(mensagem_final, parse_mode=ParseMode.HTML)
-
-
 
 # --- Configuração de Logging para o Telegram ---
 
@@ -990,9 +1070,9 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "\n\n- Atividades 🌟",
         "    /atividades <POP>",
         "    Verifica atividades e gera de acordo com as atividades pendentes no template.",
-        "    EX: /atividades CTO",
+        "    EX: /atividades POP",
 
-        "\n\n- Checar �",
+        "\n\n- Checar 🔍",
         "    /checar <CTO> <FSAN>",
         "    Verifica OLT/SLOT/PON de um cliente na CTO.",
         "    EX: /checar CTO-001 FHTT0000000",
@@ -1488,7 +1568,7 @@ async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {"comando": "Insert", "cto": CTO, "olt": olt, "slot": slot, "pon": pon}
     logger.info(f"/Insert - CTO:{CTO}, PON:{OLT_SLOT_PON} - Usuário:{update.effective_user.first_name}")
 
-    webhook_link = await buscar_webhook_por_pop(POP) # CORRIGIDO: Adicionado await
+    webhook_link = await buscar_webhook_por_pop(POP)
     
     if webhook_link is None:
         await update.message.reply_text(ErroP102)
@@ -1780,22 +1860,411 @@ async def handle_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ExcluirArquivosporExtensao()
 
 async def mensagem_editada(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Este handler recebe todos os updates, mas só age se for uma edição de mensagem.
-    Se for, ele simplesmente chama a função 'handle_mensagem' para processá-la.
-    """
     # Se o update contiver uma mensagem editada, e essa mensagem tiver texto...
     if update.edited_message and update.edited_message.text:
-        # Chame a mesma função que lida com mensagens de texto novas.
-        # A lógica dentro de 'handle_mensagem' já sabe como lidar com isso.
         await handle_mensagem(update, context)
+
+@check_permission
+async def excluir_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Remove um utilizador pelo ID do Telegram ou pela matrícula.
+    Uso: /excluir_usuario <id_do_telegram_ou_matricula>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if not context.args or len(context.args) != 1:
+        await message.reply_text("Uso correto: <code>/excluir_usuario &lt;ID ou Matrícula&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    identificador = context.args[0]
+    if not identificador.isdigit():
+        await message.reply_text("❌ O identificador (ID ou Matrícula) deve ser um número.")
+        return
+    
+    id_ou_matricula = int(identificador)
+
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            # Tenta apagar onde o id_telegram OU a matricula correspondem ao identificador
+            query = "DELETE FROM usuarios WHERE id_telegram = %s OR matricula = %s"
+            rows_affected = await cursor.execute(query, (id_ou_matricula, id_ou_matricula))
+        
+        if rows_affected > 0:
+            await message.reply_text(f"✅ Utilizador com ID/Matrícula <code>{id_ou_matricula}</code> foi removido com sucesso.", parse_mode=ParseMode.HTML)
+            logger.info(f"Admin {update.effective_user.id} removeu o utilizador com ID/Matrícula {id_ou_matricula}.")
+        else:
+            await message.reply_text(f"⚠️ Nenhum utilizador encontrado com o ID ou Matrícula <code>{id_ou_matricula}</code>.", parse_mode=ParseMode.HTML)
+
+    except Exception as e:
+        logger.error(f"Erro em /excluir_usuario: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao tentar remover o utilizador.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+@check_permission
+async def novo_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Adiciona um novo cargo à tabela 'cargos'.
+    Uso: /novo_cargo <NomeDoCargo>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if not context.args:
+        await message.reply_text("Uso correto: <code>/novo_cargo &lt;NomeDoCargo&gt;</code> (sem espaços)", parse_mode=ParseMode.HTML)
+        return
+
+    # Pega o nome do cargo e capitaliza a primeira letra
+    nome_cargo = context.args[0].capitalize()
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            await cursor.execute("INSERT INTO cargos (nome_cargo) VALUES (%s)", (nome_cargo,))
+        
+        await message.reply_text(f"✅ Cargo '<b>{escape(nome_cargo)}</b>' criado com sucesso!", parse_mode=ParseMode.HTML)
+        logger.info(f"Admin {update.effective_user.id} criou o novo cargo: {nome_cargo}.")
+
+    except aiomysql.IntegrityError:
+        # Este erro ocorre se o cargo já existir (devido à restrição UNIQUE)
+        await message.reply_text(f"⚠️ O cargo '<b>{escape(nome_cargo)}</b>' já existe.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Erro em /novo_cargo: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao criar o novo cargo.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+@check_permission
+async def excluir_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Remove um cargo da tabela 'cargos'.
+    Uso: /excluir_cargo <NomeDoCargo>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if not context.args:
+        await message.reply_text("Uso correto: <code>/excluir_cargo &lt;NomeDoCargo&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    nome_cargo = context.args[0].capitalize()
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            # ON DELETE CASCADE irá remover as permissões associadas
+            rows_affected = await cursor.execute("DELETE FROM cargos WHERE nome_cargo = %s", (nome_cargo,))
+        
+        if rows_affected > 0:
+            await message.reply_text(f"✅ Cargo '<b>{escape(nome_cargo)}</b>' e todas as suas permissões foram removidos.", parse_mode=ParseMode.HTML)
+            logger.info(f"Admin {update.effective_user.id} removeu o cargo {nome_cargo}.")
+        else:
+            await message.reply_text(f"⚠️ Nenhum cargo encontrado com o nome '<b>{escape(nome_cargo)}</b>'.", parse_mode=ParseMode.HTML)
+
+    except aiomysql.IntegrityError:
+        await message.reply_text(f"❌ Não é possível remover o cargo '<b>{escape(nome_cargo)}</b>' pois ele ainda está em uso por algum utilizador.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Erro em /excluir_cargo: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao tentar remover o cargo.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+
+# --- Funções de Gestão de Comandos e Permissões ---
+
+@check_permission
+async def novo_comando(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Adiciona um novo comando e concede permissão automática ao 'Administrador'.
+    Uso: /novo_comando <nome_do_comando>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if not context.args:
+        await message.reply_text("Uso correto: <code>/novo_comando &lt;nome_do_comando&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    nome_comando = context.args[0].lower() # Comandos são minúsculos por convenção
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            # 1. Insere o novo comando. Falhará se já existir (IntegrityError).
+            await cursor.execute("INSERT INTO comandos (nome_comando) VALUES (%s)", (nome_comando,))
+            
+            # 2. Concede permissão ao 'Administrador' para o novo comando.
+            query_permission = """
+                INSERT INTO permissoes (cargo_id, comando_id)
+                VALUES (
+                    (SELECT id FROM cargos WHERE nome_cargo = 'Administrador'),
+                    (SELECT id FROM comandos WHERE nome_comando = %s)
+                )
+            """
+            await cursor.execute(query_permission, (nome_comando,))
+        
+        await message.reply_text(
+            f"✅ Comando <code>/{nome_comando}</code> adicionado com sucesso!\n"
+            f"Permissão automática concedida ao cargo <b>Administrador</b>.",
+            parse_mode=ParseMode.HTML
+        )
+        logger.info(f"Admin {update.effective_user.id} adicionou o novo comando '{nome_comando}' com permissão de admin.")
+
+    except aiomysql.IntegrityError:
+        await message.reply_text(f"⚠️ O comando <code>/{nome_comando}</code> já existe no sistema.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Erro em /novo_comando: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao adicionar o novo comando.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+@check_permission
+async def excluir_comando(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Remove um comando da tabela 'comandos'.
+    Uso: /excluir_comando <nome_do_comando>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if not context.args:
+        await message.reply_text("Uso correto: <code>/excluir_comando &lt;nome_do_comando&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    nome_comando = context.args[0].lower()
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            # ON DELETE CASCADE irá remover as permissões associadas
+            rows_affected = await cursor.execute("DELETE FROM comandos WHERE nome_comando = %s", (nome_comando,))
+        
+        if rows_affected > 0:
+            await message.reply_text(f"✅ Comando <code>/{nome_comando}</code> e todas as suas permissões foram removidos.", parse_mode=ParseMode.HTML)
+            logger.info(f"Admin {update.effective_user.id} removeu o comando {nome_comando}.")
+        else:
+            await message.reply_text(f"⚠️ Nenhum comando encontrado com o nome '<code>/{nome_comando}</code>'.", parse_mode=ParseMode.HTML)
+
+    except Exception as e:
+        logger.error(f"Erro em /excluir_comando: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao tentar remover o comando.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+@check_permission
+async def limpar_convites(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Limpa todos os registos da tabela de cadastros pendentes.
+    Uso: /limpar_convites
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            # Executa o comando DELETE e guarda o número de linhas removidas
+            rows_deleted = await cursor.execute("DELETE FROM cadastros_pendentes")
+        
+        await message.reply_text(f"🧹 Limpeza concluída! {rows_deleted} convite(s) pendente(s) foram removidos.")
+        logger.info(f"Admin {update.effective_user.id} limpou a tabela de convites pendentes.")
+
+    except Exception as e:
+        logger.error(f"Erro em /limpar_convites: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao limpar os convites pendentes.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+@check_permission
+async def adicionar_permissao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Concede a um cargo permissão para usar um comando.
+    Uso: /adicionar_permissao <Cargo> <nome_do_comando>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if len(context.args) != 2:
+        await message.reply_text("Uso: <code>/adicionar_permissao &lt;Cargo&gt; &lt;comando&gt;</code>\nEx: /adicionar_permissao Tecnico ctos", parse_mode=ParseMode.HTML)
+        return
+
+    cargo, comando = context.args
+    cargo = cargo.capitalize()
+    comando = comando.lower() 
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            query = """
+                INSERT INTO permissoes (cargo_id, comando_id)
+                VALUES (
+                    (SELECT id FROM cargos WHERE nome_cargo = %s),
+                    (SELECT id FROM comandos WHERE nome_comando = %s)
+                )
+            """
+            await cursor.execute(query, (cargo, comando))
+        
+        await message.reply_text(f"✅ Permissão concedida! O cargo <b>{escape(cargo)}</b> agora pode usar o comando <code>/{comando}</code>.", parse_mode=ParseMode.HTML)
+        logger.info(f"Admin {update.effective_user.id} concedeu a permissão /{comando} para o cargo {cargo}.")
+
+    except aiomysql.IntegrityError:
+        await message.reply_text(f"❌ Falha ao adicionar permissão. Verifique se o cargo '<b>{escape(cargo)}</b>' e o comando '<code>/{comando}</code>' existem e se a permissão já não foi concedida.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Erro em /adicionar_permissao: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao adicionar a permissão.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+            
+@check_permission
+async def revogar_permissao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Revoga de um cargo a permissão para usar um comando.
+    Uso: /revogar_permissao <Cargo> <nome_do_comando>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if len(context.args) != 2:
+        await message.reply_text("Uso: <code>/revogar_permissao &lt;Cargo&gt; &lt;comando&gt;</code>\nEx: /revogar_permissao Tecnico ctos", parse_mode=ParseMode.HTML)
+        return
+
+    cargo, comando = context.args
+    cargo = cargo.capitalize()
+    comando = comando.lower()
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            query = """
+                DELETE FROM permissoes
+                WHERE cargo_id = (SELECT id FROM cargos WHERE nome_cargo = %s)
+                AND comando_id = (SELECT id FROM comandos WHERE nome_comando = %s)
+            """
+            rows_affected = await cursor.execute(query, (cargo, comando))
+
+        if rows_affected > 0:
+            await message.reply_text(f"✅ Permissão revogada! O cargo <b>{escape(cargo)}</b> não pode mais usar o comando <code>/{comando}</code>.", parse_mode=ParseMode.HTML)
+            logger.info(f"Admin {update.effective_user.id} revogou a permissão /{comando} do cargo {cargo}.")
+        else:
+            await message.reply_text("⚠️ Nenhuma permissão correspondente encontrada para ser revogada. Verifique os nomes do cargo e do comando.")
+
+    except Exception as e:
+        logger.error(f"Erro em /revogar_permissao: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao revogar a permissão.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+async def verificar_inativos(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("A executar job diário: Verificação de utilizadores inativos...")
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db:
+            logger.error("Job 'verificar_inativos': Não foi possível conectar ao DB.")
+            return
+
+        async with conexao_db.cursor() as cursor:
+            # Query para encontrar e atualizar utilizadores ativos com mais de 30 dias de inatividade
+            query = """
+                UPDATE usuarios
+                SET esta_ativo = FALSE
+                WHERE esta_ativo = TRUE AND ultima_interacao < DATE_SUB(NOW(), INTERVAL 30 DAY);
+            """
+            rows_affected = await cursor.execute(query)
+        
+        if rows_affected > 0:
+            logger.info(f"Job 'verificar_inativos': {rows_affected} utilizador(es) foram marcados como inativos.")
+        else:
+            logger.info("Job 'verificar_inativos': Nenhum utilizador inativo encontrado.")
+
+    except Exception as e:
+        logger.error(f"Job 'verificar_inativos': Falha ao executar a tarefa. Erro: {e}")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+#Comando /reativar_usuario
+@check_permission
+async def reativar_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    (Admin) Reativa um utilizador que foi marcado como inativo.
+    Uso: /reativar_usuario <ID ou Matrícula>
+    """
+    message = update.message or update.edited_message
+    if not message: return
+
+    if not context.args or len(context.args) != 1:
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Substituído '<' e '>' por '&lt;' e '&gt;' para evitar erro de parse HTML
+        await message.reply_text("Uso correto: <code>/reativar_usuario &lt;ID ou Matrícula&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    identificador = context.args[0]
+    if not identificador.isdigit():
+        await message.reply_text("❌ O identificador (ID ou Matrícula) deve ser um número.")
+        return
+    
+    id_ou_matricula = int(identificador)
+
+    conexao_db = None
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db: raise ConnectionError("DB indisponível.")
+        
+        async with conexao_db.cursor() as cursor:
+            # Reativa a conta e atualiza a data de interação para o momento atual
+            query = """
+                UPDATE usuarios 
+                SET esta_ativo = TRUE, ultima_interacao = NOW() 
+                WHERE id_telegram = %s OR matricula = %s
+            """
+            rows_affected = await cursor.execute(query, (id_ou_matricula, id_ou_matricula))
+        
+        if rows_affected > 0:
+            await message.reply_text(f"✅ Utilizador com ID/Matrícula <code>{id_ou_matricula}</code> foi reativado com sucesso.", parse_mode=ParseMode.HTML)
+            logger.info(f"Admin {update.effective_user.id} reativou o utilizador com ID/Matrícula {id_ou_matricula}.")
+        else:
+            await message.reply_text(f"⚠️ Nenhum utilizador inativo encontrado com o ID ou Matrícula <code>{id_ou_matricula}</code>.", parse_mode=ParseMode.HTML)
+
+    except Exception as e:
+        logger.error(f"Erro em /reativar_usuario: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro ao tentar reativar o utilizador.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
 
 # --- Função Principal de Execução do Bot ---
 
 def main() -> None:
-    """
-    Função principal que constrói, configura e executa o bot do Telegram.
-    """
+ 
     try:
         app = ApplicationBuilder().token(BOT_TOKEN).connect_timeout(10).read_timeout(10).job_queue(JobQueue()).build()
         
@@ -1820,10 +2289,9 @@ def main() -> None:
         )
         app.add_handler(conv_handler_novo_usuario)
 
-        # 4. Mapa de Comandos.
+        # Mapa de Comandos.
         app.add_handler(CommandHandler("start", ajuda))
         app.add_handler(CommandHandler("ajuda", ajuda))
-        app.add_handler(CommandHandler("cadastrar", cadastrar))
         app.add_handler(CommandHandler("ctos", ctos))
         app.add_handler(CommandHandler("novaCTO", novaCTO))
         app.add_handler(CommandHandler("atividades", atividades))
@@ -1837,6 +2305,7 @@ def main() -> None:
         app.add_handler(CommandHandler("gerarkmzatualizado", gerarkmzatualizado))
         app.add_handler(CommandHandler("baixarkmz", baixarkmz))
         app.add_handler(CommandHandler("Id", id))
+        app.add_handler(CommandHandler("Info", Info))
         # Comandos de administração
         app.add_handler(CommandHandler("AjudaAdm", AjudaAdm))
         app.add_handler(CommandHandler("CWH", CWH))
@@ -1844,11 +2313,22 @@ def main() -> None:
         app.add_handler(CommandHandler("ExcluirTemplate", ExcluirTemplate))
         app.add_handler(CommandHandler("configdrive", configdrive))
         app.add_handler(CommandHandler("listar_admins", listar_admins))
-        app.add_handler(CommandHandler("Info", Info))
+        app.add_handler(CommandHandler("cadastrar", cadastrar))
+        app.add_handler(CommandHandler("excluir_usuario", excluir_usuario))
+        app.add_handler(CommandHandler("novo_cargo", novo_cargo))
+        app.add_handler(CommandHandler("excluir_cargo", excluir_cargo))
+        app.add_handler(CommandHandler("adicionar_permissao", adicionar_permissao))
+        app.add_handler(CommandHandler("revogar_permissao", revogar_permissao))
+        app.add_handler(CommandHandler("novo_comando", novo_comando))
+        app.add_handler(CommandHandler("excluir_comando", excluir_comando))
+        app.add_handler(CommandHandler("limpar_convites", limpar_convites))
+        app.add_handler(CommandHandler("reativar_usuario", reativar_usuario))
 
-        # 5. Handlers de Mensagem.
+        
+        # Handlers de Mensagem.
         # Handler para qualquer mensagem de localização.
-        app.add_handler(MessageHandler(filters.LOCATION, unified_location_handler))
+        map_pattern = r'(maps\.google\.com|goo\.gl/maps|waze\.com|@?(-?\d+\.\d+)[, ](-?\d+\.\d+))'
+        app.add_handler(MessageHandler(filters.LOCATION | filters.Regex(map_pattern),unified_location_handler))        
         # Handler para qualquer tipo de documento enviado.
         app.add_handler(MessageHandler(filters.Document.ALL, handle_arquivo))
         # Handler para qualquer mensagem de texto que NÃO seja um comando.
@@ -1857,19 +2337,21 @@ def main() -> None:
         app.add_handler(TypeHandler(Update, mensagem_editada))
 
 
-
         # --- Agendamento de Tarefas ---
         fuso_horario_sp = pytz.timezone('America/Sao_Paulo')
+        
+        #atualizar_admins_fallback
         horario = dt_time(hour=3, minute=0, second=0, tzinfo=fuso_horario_sp)
-        
-        logger.info(f"Agendando tarefa diária para as {horario.strftime('%H:%M:%S %Z')}")
+        logger.info(f"Agendando atualizar_admins_fallback para as {horario.strftime('%H:%M:%S %Z')}")
         # Agenda a função 'atualizar_admins_fallback' para rodar diariamente no horário definido.
-        app.job_queue.run_daily(
-            atualizar_admins_fallback, 
-            time=horario, 
-            name="Atualização lista Admins"
-        )
+        app.job_queue.run_daily(atualizar_admins_fallback, time=horario, name="Atualização lista Admins")
         
+        #verificar_inativos
+        horario_inativos = dt_time(hour=4, minute=0, second=0, tzinfo=fuso_horario_sp)
+        logger.info(f"Agendando verificar_inativos para as {horario_inativos.strftime('%H:%M:%S %Z')}")
+        # Agenda a função 'verificar_inativos' para rodar diariamente no horário definido.
+        app.job_queue.run_daily(verificar_inativos,time=horario_inativos,name="Verificação de Utilizadores Inativos")
+
         logger.info("Automação está rodando...")
         app.run_polling()
 

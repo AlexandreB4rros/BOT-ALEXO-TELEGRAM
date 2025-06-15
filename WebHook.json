@@ -1,15 +1,5 @@
 [
     {
-        "CIDADE": "TIETE",
-        "POP": "TIE",
-        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbxmgOUZviLD-6FJb32VWU-3uXNqzoJlnDDrLz152NnJcR0T4QY57YV5pkTJVmAxdxZv/exec"
-    },
-    {
-        "CIDADE": "SOROCABA",
-        "POP": "SOA",
-        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbxS4ajzsd0ORFvfSOIRrVQGLSqUCo7J0ziMe8DiLB0-xX6_19njuau5_xULVdxSfhl9sw/exec"
-    },
-    {
         "CIDADE": "SOROCABA",
         "POP": "SOB",
         "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycby3vOOhXFWckXFz-UGKbZjcCdKxZygnHKxuP0eVffSgk7dkrPBjr8BN540WEL8GX3_o6Q/exec"
