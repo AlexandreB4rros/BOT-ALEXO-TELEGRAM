@@ -108,8 +108,7 @@ DBUG = 2
 # Seleciona o token do bot conforme o modo de debug
 try:
     # Tenta obter o token do bot chamando a função customizada 'selecionar_token'
-    BOT_TOKEN = selecionar_token(DBUG)
-    DB_DATABASE = selecionar_token(DBUG)
+    BOT_TOKEN, DB_DATABASE = selecionar_token(DBUG)
 except ValueError as e:
     logger.error(f"Erro: {e}")
 
@@ -172,6 +171,7 @@ async def check_reconnection(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # Função para centralizar e padronizar a criação de conexões com o banco de dados.
 async def criar_conexao_db():
+    DB = str(DB_DATABASE)
     """Cria e retorna uma conexão assíncrona com o banco de dados."""
     try:
         # Carrega as credenciais do banco de dados a partir de variáveis de ambiente.
@@ -179,7 +179,7 @@ async def criar_conexao_db():
             host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
-            db=DB_DATABASE,
+            db=DB,
             connect_timeout=5,
             autocommit=True # Autocommit para simplificar operações
         )
