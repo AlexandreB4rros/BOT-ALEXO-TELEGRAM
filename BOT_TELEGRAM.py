@@ -28,7 +28,7 @@ import contextily as cx
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler, JobQueue, TypeHandler)  # Componentes para construir o bot
-from telegram.error import NetworkError
+from telegram.error import NetworkError, Forbidden
 from Scripts_Alexo import selecionar_token, __version__
 import asyncio
 import aiofiles
@@ -219,11 +219,16 @@ async def atualizar_admins_fallback(context: ContextTypes.DEFAULT_TYPE):
 # Função principal para notificar administradores.
 # A primeira tentativa é sempre buscar a lista de admins direto do banco de dados.
 async def notificar_admins(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: str):
+    """
+    Busca a lista de administradores no DB e os notifica sobre um erro,
+    ignorando de forma segura os utilizadores que bloquearam o bot.
+    """
     conexao_db = None
     try:
         conexao_db = await criar_conexao_db()
         if not conexao_db:
             raise ConnectionError("Falha ao obter conexão com o DB para notificação.")
+        
         async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
             query = "SELECT u.id_telegram FROM usuarios u JOIN cargos c ON u.cargo_id = c.id WHERE c.nome_cargo = 'Administrador'"
             await cursor.execute(query)
@@ -232,21 +237,37 @@ async def notificar_admins(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: st
         if not admins:
             logger.warning("Nenhum administrador encontrado no banco de dados para notificar.")
             return
+            
         erro_escapado = escape(str(mensagem_erro))
         mensagem_formatada = (
             f"<b>🚨 ALERTA DE ERRO 🚨</b>\n\n"
             f"Ocorreu a seguinte falha no bot:\n"
             f"<pre><code>{erro_escapado}</code></pre>"
         )
-        tasks = [
-            context.bot.send_message(
-                chat_id=admin['id_telegram'],
-                text=mensagem_formatada,
-                parse_mode=ParseMode.HTML
-            ) for admin in admins
-        ]
-        
-        await asyncio.gather(*tasks)
+
+        # --- LÓGICA DE ENVIO MELHORADA ---
+        tasks = []
+        for admin in admins:
+            admin_id = admin['id_telegram']
+            try:
+                # Cria a tarefa de envio para cada admin
+                task = context.bot.send_message(
+                    chat_id=admin_id,
+                    text=mensagem_formatada,
+                    parse_mode=ParseMode.HTML
+                )
+                tasks.append(task)
+            except Forbidden:
+                # Se o bot for bloqueado, regista um aviso e continua para o próximo
+                logger.warning(f"Não foi possível notificar o admin {admin_id}. O bot foi bloqueado ou não foi iniciado.")
+            except Exception as e:
+                logger.error(f"Erro inesperado ao tentar enviar mensagem para o admin {admin_id}: {e}")
+
+        # Envia todas as mensagens válidas em paralelo
+        if tasks:
+            # Usamos return_exceptions=True para garantir que, se um envio falhar por outro motivo,
+            # os outros não sejam interrompidos.
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     except Exception as db_err:
         logger.error(f"Falha ao notificar admins (DB), acionando fallback. Erro: {db_err}")
@@ -257,29 +278,51 @@ async def notificar_admins(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: st
 
 # Função de notificação de fallback, usada quando o banco de dados está inacessível.
 async def notificar_admins_fallback(context: ContextTypes.DEFAULT_TYPE, mensagem_erro: str):
+    """
+    Notifica os admins usando uma lista de um ficheiro JSON, usada quando o DB falha.
+    Também ignora de forma segura os utilizadores que bloquearam o bot.
+    """
     logger.warning("Acionando modo de notificação de fallback (lendo do arquivo JSON).")
     try:
         # Abre o arquivo JSON que contém a lista de admins salva.
         async with aiofiles.open("admins_fallback.json", "r", encoding="utf-8") as f:
             dados = json.loads(await f.read())
             admin_ids = dados.get("admin_ids", [])
-        # Se a lista de IDs estiver vazia, registra o erro e encerra.
+            
         if not admin_ids:
             logger.error("O arquivo de fallback de administradores está vazio ou não foi encontrado. Ninguém foi notificado.")
             return
-        # Formata a mensagem para informar que é uma notificação de fallback.
+
+        # Formata a mensagem de forma segura com HTML
+        erro_escapado = escape(str(mensagem_erro))
         mensagem_formatada = (
-            f"🚨 *ALERTA DE ERRO (Notificação de Fallback)* 🚨\n\n"
+            f"<b>🚨 ALERTA DE ERRO (Notificação de Fallback) 🚨</b>\n\n"
             f"A notificação primária falhou. O erro original reportado foi:\n\n"
-            f"```\n{mensagem_erro}\n```"
+            f"<pre><code>{erro_escapado}</code></pre>"
         )
-        # Envia a mensagem para cada admin salvo no arquivo.
-        tasks = [context.bot.send_message(chat_id=admin_id, text=mensagem_formatada, parse_mode='Markdown') for admin_id in admin_ids]
-        await asyncio.gather(*tasks, return_exceptions=True)
+
+        tasks = []
+        for admin_id in admin_ids:
+            try:
+                task = context.bot.send_message(
+                    chat_id=admin_id, 
+                    text=mensagem_formatada, 
+                    parse_mode=ParseMode.HTML
+                )
+                tasks.append(task)
+            except Forbidden:
+                logger.warning(f"Fallback: Não foi possível notificar o admin {admin_id}. O bot foi bloqueado ou não foi iniciado.")
+            except Exception as e:
+                logger.error(f"Erro inesperado na função de notificação de fallback para o admin {admin_id}: {e}")
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
     except FileNotFoundError:
         logger.error("Arquivo 'admins_fallback.json' não encontrado. Não foi possível executar a notificação de fallback.")
     except Exception as e:
-        logger.error(f"Erro inesperado na função de notificação de fallback: {e}")
+        logger.error(f"Erro crítico inesperado na função de notificação de fallback: {e}")
+
 
 # --- Decorator de Verificação de Permissão ---
 
