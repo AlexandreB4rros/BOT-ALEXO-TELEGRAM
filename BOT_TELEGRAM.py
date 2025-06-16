@@ -93,11 +93,14 @@ logger.addHandler(console_handler)
 __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
-FileName = "WebHook.json"
+ROOT_DIR = Path(__file__).parent
+# Constrói o caminho absoluto para o ficheiro JSON
+FILENAME_WEBHOOK = ROOT_DIR / "WebHook.json"
+
 # Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-DBUG = 2
+DBUG = 1
 
 
 # --- Inicialização do Token do Bot ---
@@ -898,42 +901,61 @@ def kml_to_xlsx(kml_file, xlsx_file):
 # --- Funções de Busca em Arquivos JSON ---
 
 # Função para listar cidades a partir de um arquivo JSON de configuração.
-async def ListaCidades():
-    try:
-        async with aiofiles.open(FileName, 'r', encoding='utf-8') as f:
-            dados = json.loads(await f.read())
-        return "\n".join([f"{i+1}. {c.get('POP', '')} - {c.get('CIDADE', '')}" for i, c in enumerate(dados)])
-    except (FileNotFoundError, json.JSONDecodeError):
-        logger.error(f"Erro ao ler o arquivo de cidades: {FileName}")
-        return "Arquivo de cidades não encontrado ou corrompido."
-
-
-# Busca o link do webhook associado a um POP específico. Compara o POP de forma insensível a maiúsculas/minúsculas.
 async def buscar_webhook_por_pop(pop: str) -> str | None:
+    """Busca o link do webhook associado a um POP de forma segura."""
     try:
-        async with aiofiles.open(FileName, 'r', encoding='utf-8') as f:
+        async with aiofiles.open(FILENAME_WEBHOOK, 'r', encoding='utf-8') as f:
             dados = json.loads(await f.read())
         for entry in dados:
             if entry.get("POP", "").upper() == pop.upper():
                 return entry.get("WEBHOOK_LINK")
         return None
-    except (FileNotFoundError, json.JSONDecodeError):
-        logger.error(f"Erro ao ler o arquivo de webhook: {FileName}")
+    except FileNotFoundError:
+        logger.error(f"Erro CRÍTICO: O ficheiro de configuração '{FILENAME_WEBHOOK}' não foi encontrado.")
+        return None
+    except json.JSONDecodeError:
+        logger.error(f"Erro CRÍTICO: O ficheiro '{FILENAME_WEBHOOK}' contém um JSON inválido.")
+        return None
+    except Exception as e:
+        logger.error(f"Erro inesperado ao ler o ficheiro de webhook: {e}")
         return None
 
-
-# Busca o nome da cidade associada a um POP específico.
 async def buscar_cidade_por_pop(pop: str) -> str | None:
+    """Busca o nome da cidade associada a um POP de forma segura."""
     try:
-        async with aiofiles.open(FileName, 'r', encoding='utf-8') as f:
+        async with aiofiles.open(FILENAME_WEBHOOK, 'r', encoding='utf-8') as f:
             dados = json.loads(await f.read())
         for entry in dados:
             if entry.get("POP", "").upper() == pop.upper():
                 return entry.get("CIDADE")
         return None
-    except (FileNotFoundError, json.JSONDecodeError):
-        logger.error(f"Erro ao buscar cidade por POP: {FileName}")
+    except FileNotFoundError:
+        logger.error(f"Erro CRÍTICO: O ficheiro de configuração '{FILENAME_WEBHOOK}' não foi encontrado.")
         return None
+    except json.JSONDecodeError:
+        logger.error(f"Erro CRÍTICO: O ficheiro '{FILENAME_WEBHOOK}' contém um JSON inválido.")
+        return None
+    except Exception as e:
+        logger.error(f"Erro inesperado ao buscar cidade por POP: {e}")
+        return None
+
+
+async def ListaCidades():
+    """Lista cidades a partir de um ficheiro JSON de forma segura."""
+    try:
+        async with aiofiles.open(FILENAME_WEBHOOK, 'r', encoding='utf-8') as f:
+            dados = json.loads(await f.read())
+        return "\n".join([f"{i+1}. {c.get('POP', '')} - {c.get('CIDADE', '')}" for i, c in enumerate(dados)])
+    except FileNotFoundError:
+        logger.error(f"Erro CRÍTICO: O ficheiro de cidades '{FILENAME_WEBHOOK}' não foi encontrado.")
+        return "Arquivo de cidades não encontrado."
+    except json.JSONDecodeError:
+        logger.error(f"Erro CRÍTICO: O ficheiro de cidades '{FILENAME_WEBHOOK}' contém um JSON inválido.")
+        return "Arquivo de cidades corrompido."
+    except Exception as e:
+        logger.error(f"Erro inesperado ao ler o ficheiro de cidades: {e}")
+        return "Erro ao ler o arquivo de cidades."
+
 
 
 # Busca a configuração de um diretório em um arquivo JSON específico.
@@ -1272,10 +1294,17 @@ async def localizar_cto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Comando /Exibircidade.
 @check_permission
-async def ExibirCidade(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cidade = ListaCidades()
-    await update.message.reply_text(text=f"🌆 Cidades disponíveis:\n\n{cidade}")
-    logger.info(f"/ExibirCidade recebido - Usuário:{update.effective_user.first_name}")
+async def exibircidade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Exibe a lista de cidades e POPs configurados."""
+    message = update.message or update.edited_message
+    if not message:
+        return
+
+    # Await é necessário pois ListaCidades é uma função async
+    cidades = await ListaCidades()
+    
+    await message.reply_text(text=f"🌆 Cidades disponíveis:\n\n{cidades}")
+    logger.info(f"/ExibirCidade recebido - Usuário: {update.effective_user.full_name}")
     
 
 # Comando /input
@@ -1327,7 +1356,7 @@ async def input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Comando de ajuda administrativa.
 @check_permission
-async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ajudaadm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat_id = update.effective_chat.id
     chat_title = update.effective_chat.title or "Chat Privado"
@@ -1342,7 +1371,7 @@ async def AjudaAdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "    EX: /cadastrar Tecnico",
         
         "\n\n- Exibir Cidades",
-        "    /exibircidades",
+        "    /exibircidade",
         "    Lista todas as cidades e POPs configurados.",
 
         "\n\n- Adicionar Template"
@@ -1407,7 +1436,7 @@ async def CWH(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
 # Comando para Adicionar um novo template ao arquivo de configuração WebHook.json.
 @check_permission
-async def AdicionarTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def adicionartemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if len(context.args) < 3:
         await update.message.reply_text(
@@ -1425,8 +1454,8 @@ async def AdicionarTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         dados_existentes = []
-        if await _run_blocking_io(os.path.exists, FileName):
-            async with aiofiles.open(FileName, 'r', encoding='utf-8') as f:
+        if await _run_blocking_io(os.path.exists, FILENAME_WEBHOOK):
+            async with aiofiles.open(FILENAME_WEBHOOK, 'r', encoding='utf-8') as f:
                 try:
                     dados_existentes = json.loads(await f.read())
                 except json.JSONDecodeError:
@@ -1434,7 +1463,7 @@ async def AdicionarTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         dados_existentes.append(novo_dado)
         
-        async with aiofiles.open(FileName, 'w', encoding='utf-8') as f:
+        async with aiofiles.open(FILENAME_WEBHOOK, 'w', encoding='utf-8') as f:
             await f.write(json.dumps(dados_existentes, ensure_ascii=False, indent=4))
 
         cidades = await ListaCidades() # Await na chamada da função async
@@ -1448,7 +1477,7 @@ async def AdicionarTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Comando para excluir um template do arquivo de configuração.
 @check_permission
-async def ExcluirTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def excluirtemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 1:
         await update.message.reply_text(text="❌ Formato inválido!\n\nUse: /ExcluirTemplate <POP>")
         return
@@ -1457,11 +1486,11 @@ async def ExcluirTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"/ExcluirTemplate - POP para excluir: {pop_a_excluir} - Usuário: {update.effective_user.first_name}")
 
     try:
-        if not await _run_blocking_io(os.path.exists, FileName):
+        if not await _run_blocking_io(os.path.exists, FILENAME_WEBHOOK):
             await update.message.reply_text("❌ Arquivo de configuração 'WebHook.json' não encontrado.")
             return
 
-        async with aiofiles.open(FileName, 'r', encoding='utf-8') as f:
+        async with aiofiles.open(FILENAME_WEBHOOK, 'r', encoding='utf-8') as f:
             content = await f.read()
             dados = json.loads(content) if content else []
 
@@ -1471,7 +1500,7 @@ async def ExcluirTemplate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(dados) == len(dados_atualizados):
             await update.message.reply_text(text=f"⚠️ O POP '{pop_a_excluir}' não foi encontrado na lista.")
         else:
-            async with aiofiles.open(FileName, 'w', encoding='utf-8') as f:
+            async with aiofiles.open(FILENAME_WEBHOOK, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(dados_atualizados, indent=4, ensure_ascii=False))
             
             await update.message.reply_text(text=f"✅ O POP '{pop_a_excluir}' foi excluído com sucesso!")
@@ -1499,7 +1528,7 @@ async def id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                       f"\nID do Usuario: {user_id}")
 
 # Comando público /info.
-async def Info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Inf = (
         "| Nome do BOT: Alexo"
         "\n\n - Alexo tem o intuito de ser um auxílio para os usuários técnicos, back-offices e internos, com a capacidade de gerar de editar plalhas inopputando informações direto do chat, assim reduzindo as margens se erros na inputação de diversos procedimentos por todas as equipes."
@@ -1514,7 +1543,7 @@ async def Info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Comando /listarIDs.
 @check_permission
-async def listarIDs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def listarids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Valida se os argumentos <POP> e <OLT/SLOT/PON> foram fornecidos.
     if len(context.args) < 2:
         await update.message.reply_text(text=ErroS101 if len(context.args) > 0 else ErroP101)
@@ -1583,7 +1612,7 @@ async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Comando /novaCTO.
 @check_permission
-async def novaCTO(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def novacto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Validação robusta para garantir que todos os 3 argumentos foram fornecidos.
     if len(context.args) < 3:
         await update.message.reply_text(text=ErroS101 if len(context.args) > 1 else ErroN101 if len(context.args) > 0 else ErroP101)
@@ -2293,24 +2322,24 @@ def main() -> None:
         app.add_handler(CommandHandler("start", ajuda))
         app.add_handler(CommandHandler("ajuda", ajuda))
         app.add_handler(CommandHandler("ctos", ctos))
-        app.add_handler(CommandHandler("novaCTO", novaCTO))
+        app.add_handler(CommandHandler("novaCTO", novacto))
         app.add_handler(CommandHandler("atividades", atividades))
         app.add_handler(CommandHandler("checar", checar))
         app.add_handler(CommandHandler("localizar", localizar_cto))
-        app.add_handler(CommandHandler("ExibirCidade", ExibirCidade))
+        app.add_handler(CommandHandler("ExibirCidade", exibircidade))
         app.add_handler(CommandHandler("input", input))
         app.add_handler(CommandHandler("insert", insert))
-        app.add_handler(CommandHandler("listarIDs", listarIDs))
+        app.add_handler(CommandHandler("listarIDs", listarids))
         app.add_handler(CommandHandler("convert", convert))
         app.add_handler(CommandHandler("gerarkmzatualizado", gerarkmzatualizado))
         app.add_handler(CommandHandler("baixarkmz", baixarkmz))
         app.add_handler(CommandHandler("Id", id))
-        app.add_handler(CommandHandler("Info", Info))
+        app.add_handler(CommandHandler("Info", info))
         # Comandos de administração
-        app.add_handler(CommandHandler("AjudaAdm", AjudaAdm))
+        app.add_handler(CommandHandler("AjudaAdm", ajudaadm))
         app.add_handler(CommandHandler("CWH", CWH))
-        app.add_handler(CommandHandler("AdcionarTemplate", AdicionarTemplate))
-        app.add_handler(CommandHandler("ExcluirTemplate", ExcluirTemplate))
+        app.add_handler(CommandHandler("AdcionarTemplate", adicionartemplate))
+        app.add_handler(CommandHandler("ExcluirTemplate", excluirtemplate))
         app.add_handler(CommandHandler("configdrive", configdrive))
         app.add_handler(CommandHandler("listar_admins", listar_admins))
         app.add_handler(CommandHandler("cadastrar", cadastrar))
