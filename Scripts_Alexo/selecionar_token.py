@@ -3,11 +3,13 @@ import logging
 from .version import __version__
 
 
-
+# Seleciona o token do bot com base no ID fornecido
 def selecionar_token(bot_id):
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger()
     logger.info("Iniciando a seleção do token do bot...")
+
+    #   Verifica se o ID do bot é válido
     if bot_id == 1:
         bot_token = os.getenv("TOKEN_BOT_ALEXO")
         db_database = os.getenv("DB_DATABASE")
