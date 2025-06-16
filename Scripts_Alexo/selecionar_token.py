@@ -11,6 +11,8 @@ def selecionar_token(bot_id):
     if bot_id == 1:
         bot_token = os.getenv("TOKEN_BOT_ALEXO")
         db_database = os.getenv("DB_DATABASE")
+
+        print(db_database)
         if not bot_token:
             logger.error("Token do Bot 1 não encontrado.")
             raise ValueError("Token do Bot 1 está ausente.")
@@ -23,7 +25,7 @@ def selecionar_token(bot_id):
             logger.error("Token do Bot 2 não encontrado.")
             raise ValueError("Token do Bot 2 está ausente.")
         logger.info(f"BOT TESTE - iniciando na Versão:{__version__}")
-        return bot_token, db_database
+        return bot_token
     else:
         logger.error("Nenhum bot válido foi selecionado, verifique o atributo.")
         raise ValueError("ID do bot inválido! Escolha 1 ou 2.")
