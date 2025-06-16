@@ -100,7 +100,7 @@ FILENAME_WEBHOOK = ROOT_DIR / "WebHook.json"
 # Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-DBUG = 1
+DBUG = 2
 
 
 # --- Inicialização do Token do Bot ---
@@ -109,6 +109,7 @@ DBUG = 1
 try:
     # Tenta obter o token do bot chamando a função customizada 'selecionar_token'
     BOT_TOKEN = selecionar_token(DBUG)
+    DB_DATABASE = selecionar_token(DBUG)
 except ValueError as e:
     logger.error(f"Erro: {e}")
 
@@ -178,7 +179,7 @@ async def criar_conexao_db():
             host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
-            db=os.getenv("DB_DATABASE"),
+            db=DB_DATABASE,
             connect_timeout=5,
             autocommit=True # Autocommit para simplificar operações
         )
@@ -739,36 +740,28 @@ async def ctos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Este handler recebe TODAS as mensagens de localização e decide o que fazer com base nas flags definidas em 'user_data'.
 async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message or update.edited_message
-    if not message:
-        return
-        
+    
     latitude, longitude = None, None
-    location_obj = None # Para guardar o objeto de localização original se existir
 
     # --- Extração Unificada de Coordenadas ---
-    
-    # Tentativa 1: Localização nativa do Telegram
-    if message.location:
-        location_obj = message.location
-        latitude, longitude = location_obj.latitude, location_obj.longitude
-    
-    # Tentativa 2: Coordenadas em texto
-    elif message.text:
+    if message and message.location:
+        latitude, longitude = message.location.latitude, message.location.longitude
+    elif message and message.text:
+        # Lógica de extração de texto (com todas as tentativas)
         direct_match = re.search(r"(-?\d+\.\d+)[, ]+(-?\d+\.\d+)", message.text)
         if direct_match:
             latitude, longitude = map(float, direct_match.groups())
         else:
-            # Tentativa 3: URL do Google Maps
             url_match = re.search(r"https?://\S+", message.text)
             if url_match:
                 url = url_match.group(0)
                 try:
-                    headers = {'User-Agent': 'Mozilla/5.0'}
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
                     async with httpx.AsyncClient(follow_redirects=True) as client:
                         response = await client.get(url, headers=headers, timeout=10)
+                    
                     final_url = str(response.url)
                     
-                    # Tenta extrair de padrões de URL conhecidos
                     match_url = (re.search(r"/@(-?\d+\.\d+),(-?\d+\.\d+)", final_url) or
                                  re.search(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", final_url) or
                                  re.search(r"[?&](?:q|ll|query)=(-?\d+\.\d+),(-?\d+\.\d+)", final_url))
@@ -776,26 +769,24 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
                     if match_url:
                         latitude, longitude = map(float, match_url.groups())
                     else:
-                        # Fallback: Tenta encontrar no conteúdo da página
-                        match_html = re.search(r'\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]', response.text)
+                        page_content = response.text
+                        match_html = re.search(r'\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]', page_content)
                         if match_html:
                             latitude, longitude = map(float, match_html.groups())
                 except Exception as e:
                     logger.error(f"Falha crítica ao processar URL '{url}': {e}", exc_info=True)
 
-    # --- Validação e Saída ---
-    if latitude is None or longitude is None:
-        # Se a flag de espera estiver ativa, avisa o utilizador.
+    # --- Validação e Saída se não houver coordenadas ---
+    if latitude is None:
         if context.user_data.get('waiting_for_ctos_location') or context.user_data.get('waiting_for_location'):
-            await message.reply_text("Localização não reconhecida. Por favor, envie uma localização válida, um par de coordenadas ou um link do mapa.")
-        # Se não houver flag, simplesmente ignora a mensagem de texto normal.
+            await message.reply_text("Localização não reconhecida. Por favor, envie uma localização válida ou um link do mapa.")
         return
     
     user = update.effective_user
 
     # --- Lógica de Rotas ---
     
-    # Rota 1: Buscar CTOs
+    # Rota 1: Buscar CTOs (aceita link ou nativa)
     if context.user_data.pop('waiting_for_ctos_location', False):
         await message.reply_text("Buscando CTOs em um raio de 150 metros... 📡")
         ctos_encontradas = await buscar_ctos_proximas(latitude, longitude)
@@ -827,46 +818,48 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
                 logger.error(f"Falha ao gerar o mapa para /ctos: {e}", exc_info=True)
                 await message.reply_text("❌ Ocorreu um erro ao gerar o mapa.")
         return
-
-    # Rota 2: Nova CTO
-    elif context.user_data.pop('waiting_for_location', False):
-        await message.reply_text(f"📍 Localização recebida: <code>{latitude}, {longitude}</code>.\nEnviando para o template...", parse_mode=ParseMode.HTML)
         
+    # Rota 2: Nova CTO (aceita link ou nativa)
+    elif context.user_data.pop('waiting_for_location', False):
+        await update.message.reply_text(f"📍 <b>Informações da Localização</b>\n\n"
+                f"Latitude/Longitude: <code>{latitude}, {longitude}</code>\n"
+                f"{escape(accuracy)}\n\n"
+                f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>\n\n""Enviando para o template...")
+        # Recupera outras informações salvas.
         pop = context.user_data.pop('pop', None)
         olt_slot_pon = context.user_data.pop('olt_slot_pon', None)
         splitter = context.user_data.pop('splitter', None)
 
         if not all([pop, olt_slot_pon, splitter]):
-            await message.reply_text("❌ Faltam informações para criar a CTO. Tente o comando /novaCTO novamente.")
+            await update.message.reply_text("❌ Faltam informações para criar a CTO. Tente o comando /novaCTO novamente.")
             return
         
         webhook_link = await buscar_webhook_por_pop(pop)
         if not webhook_link:
-            await message.reply_text("❌ O POP informado não foi encontrado.") # Mensagem mais clara
+            await update.message.reply_text(ErroP102)
             return
 
+        # Prepara o payload para ser enviado ao sistema externo via webhook.
         olt, slot, pon = olt_slot_pon.split("/")
-        payload = {"comando": "NovaCto", "olt": olt, "slot": slot, "pon": pon, "latitude": latitude, "longitude": longitude, "splitter": splitter, "id": message.chat.id}
+        payload = {"comando": "NovaCto", "olt": olt, "slot": slot, "pon": pon, "latitude": latitude, "longitude": longitude, "splitter": splitter, "id": update.effective_chat.id}
         data = await fetch_data(webhook_link, payload)
-        await message.reply_text(data.get("mensagem", "Ocorreu um erro na resposta do servidor."))
+        await update.message.reply_text(data.get("mensagem", "Ocorreu um erro na resposta do servidor."))
         return
     
-    # Rota 3 (Padrão): Apenas mostra a localização que foi extraída
+    # Rota 3 (Padrão): Apenas localização NATIVA
     else:
-        logger.info(f"Localização avulsa recebida de {user.full_name}")
-        
-        accuracy_text = ""
-        # A precisão só existe se a localização for nativa
-        if location_obj and location_obj.horizontal_accuracy:
-            accuracy_text = f"Precisão: {location_obj.horizontal_accuracy:.0f} metros"
+        if message and message.location:
+            # Se for uma localização nativa, executa a Rota 3 normalmente.
+            logger.info(f"Processando Rota 3: Localização nativa avulsa de {user.full_name}")
+            accuracy = f"Precisão: {message.location.horizontal_accuracy:.0f} metros" if message.location.horizontal_accuracy else ""
             
-        mensagem_final = (
-            f"📍 <b>Informações da Localização</b>\n\n"
-            f"Latitude/Longitude: <code>{latitude}, {longitude}</code>\n"
-            f"{escape(accuracy_text)}\n\n"
-            f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>"
-        )
-        await message.reply_text(mensagem_final, parse_mode=ParseMode.HTML)
+            mensagem_final = (
+                f"📍 <b>Informações da Localização</b>\n\n"
+                f"Latitude/Longitude: <code>{latitude}, {longitude}</code>\n"
+                f"{escape(accuracy)}\n\n"
+                f"<a href='https://maps.google.com/?q={latitude},{longitude}'>Abrir no Google Maps</a>"
+            )
+            await message.reply_text(mensagem_final, parse_mode=ParseMode.HTML)
         
 
 # --- Configuração de Logging para o Telegram ---
