@@ -179,7 +179,7 @@ async def criar_conexao_db():
             host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
-            db=DB_DATABASE,
+            db=os.getenv("DB_DATABASE"),
             connect_timeout=5,
             autocommit=True # Autocommit para simplificar operações
         )
