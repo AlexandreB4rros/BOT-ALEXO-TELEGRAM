@@ -396,6 +396,33 @@ def check_permission(func):
                 
     return wrapper
 
+async def verificar_permissao_hierarquica(cursor, solicitante_cargo_id: int, alvo_cargo_id: int) -> bool:
+    """Verifica se um cargo tem permissão para criar outro, subindo na hierarquia do BD."""
+    if solicitante_cargo_id == alvo_cargo_id:
+        # Regra: Um cargo não pode criar um igual, exceto o Administrador.
+        await cursor.execute("SELECT nome_cargo FROM cargos WHERE id = %s", (solicitante_cargo_id,))
+        cargo_info = await cursor.fetchone()
+        return cargo_info and cargo_info['nome_cargo'] == 'Administrador'
+
+    id_atual = alvo_cargo_id
+    # Loop para "subir" na árvore hierárquica a partir do cargo alvo.
+    # O limite de 10 é uma segurança contra hierarquias quebradas ou circulares.
+    for _ in range(10):
+        await cursor.execute("SELECT parent_id FROM cargos WHERE id = %s", (id_atual,))
+        resultado = await cursor.fetchone()
+        
+        if not resultado: return False # Cargo não encontrado.
+            
+        parent_id = resultado['parent_id']
+
+        if parent_id is None: return False # Chegou no topo da hierarquia sem encontrar o solicitante.
+            
+        if parent_id == solicitante_cargo_id: return True # Encontrou o solicitante como um superior.
+            
+        id_atual = parent_id # Continua subindo para o próximo nível.
+        
+    return False
+
 # --- Comandos ---
 
 # Comando /cadastrar.
@@ -404,60 +431,94 @@ async def cadastrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     message = update.message or update.edited_message
     conexao_db = None
+
     try:
         conexao_db = await criar_conexao_db()
         if not conexao_db:
-            raise ConnectionError("DB indisponível.")
-        
-        # Se o comando for executado sem argumentos, lista os cargos.
-        if len(context.args) != 1:
-            async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
-                await cursor.execute("SELECT nome_cargo FROM cargos ORDER BY nome_cargo;")
-                resultados = await cursor.fetchall()
+            raise ConnectionError("DB indisponível para o comando /cadastrar.")
 
-            lista_cargos_segura = "\n".join(
-                [f"  - {escape(item['nome_cargo'])}" for item in resultados]
-            ) if resultados else "Nenhum cargo encontrado."
-
-            mensagem_ajuda = (
-                f"Uso: <code>/cadastrar &lt;CARGO&gt;</code>\n\n"
-                f"<b>Cargos disponíveis:</b>\n{lista_cargos_segura}"
-            )
-            
-            await message.reply_text(mensagem_ajuda, parse_mode=ParseMode.HTML)
-            return
-
-        # Se o comando tiver um argumento, inicia a geração do convite.
-        cargo_solicitado = context.args[0].capitalize()
         async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
-            await cursor.execute("SELECT id FROM cargos WHERE nome_cargo = %s", (cargo_solicitado,))
-            resultado_cargo = await cursor.fetchone()
-            if not resultado_cargo:
-                await message.reply_text(f"❌ Cargo '{escape(cargo_solicitado)}' inválido. Verifique os cargos com /cadastrar.")
+            # 1. Identificar o ID e nome do cargo do usuário que executa o comando
+            query_cargo_solicitante = "SELECT c.id, c.nome_cargo FROM usuarios u JOIN cargos c ON u.cargo_id = c.id WHERE u.id_telegram = %s"
+            await cursor.execute(query_cargo_solicitante, (user.id,))
+            solicitante = await cursor.fetchone()
+
+            if not solicitante:
+                await message.reply_text("❌ Não foi possível identificar seu cargo. Contate um administrador.")
                 return
 
-            cargo_id = resultado_cargo['id']
+            solicitante_cargo_id = solicitante['id']
+            solicitante_cargo_nome = solicitante['nome_cargo']
+
+            # 2. Lógica para quando o comando é executado SEM argumentos (/cadastrar)
+            if not context.args:
+                query_descendentes = """
+                    WITH RECURSIVE RamoHierarquia AS (
+                        SELECT id, nome_cargo FROM cargos WHERE id = %s
+                        UNION ALL
+                        SELECT c.id, c.nome_cargo FROM cargos c JOIN RamoHierarquia rh ON c.parent_id = rh.id
+                    )
+                    SELECT nome_cargo FROM RamoHierarquia WHERE id != %s;
+                """
+                await cursor.execute(query_descendentes, (solicitante_cargo_id, solicitante_cargo_id))
+                cargos_permitidos = [row['nome_cargo'] for row in await cursor.fetchall()]
+                
+                # O Administrador também pode criar outros Administradores
+                if solicitante_cargo_nome == "Administrador":
+                    cargos_permitidos.append("Administrador")
+
+                if not cargos_permitidos:
+                    mensagem_ajuda = "❌ Você não tem permissão para cadastrar novos usuários."
+                else:
+                    lista_cargos_formatada = "\n".join([f"  - <code>{escape(cargo)}</code>" for cargo in sorted(cargos_permitidos)])
+                    mensagem_ajuda = (
+                        f"Para gerar um convite, use: <code>/cadastrar &lt;CARGO&gt;</code>\n\n"
+                        f"<b>Cargos que você pode criar:</b>\n{lista_cargos_formatada}"
+                    )
+                await message.reply_text(mensagem_ajuda, parse_mode=ParseMode.HTML)
+                return
+
+            # 3. Lógica para quando o comando é executado COM argumento (/cadastrar <CARGO>)
+            cargo_alvo_nome = context.args[0].capitalize()
+
+            await cursor.execute("SELECT id FROM cargos WHERE nome_cargo = %s", (cargo_alvo_nome,))
+            cargo_alvo = await cursor.fetchone()
+            if not cargo_alvo:
+                await message.reply_text(f"❌ O cargo '<b>{escape(cargo_alvo_nome)}</b>' não existe.", parse_mode=ParseMode.HTML)
+                return
+            alvo_cargo_id = cargo_alvo['id']
+
+            # 4. Verificar permissão usando a função auxiliar e a hierarquia do BD
+            tem_permissao = await verificar_permissao_hierarquica(cursor, solicitante_cargo_id, alvo_cargo_id)
+            
+            if solicitante_cargo_nome == 'Administrador': tem_permissao = True # Admin pode tudo
+
+            if not tem_permissao:
+                await message.reply_text(f"❌ Você não tem permissão para criar usuários com o cargo '<b>{escape(cargo_alvo_nome)}</b>'.", parse_mode=ParseMode.HTML)
+                return
+
+            # 5. Se a permissão for válida, gerar o convite de cadastro
             hash_convite = secrets.token_hex(16)
             query_insert_invite = "INSERT INTO cadastros_pendentes (hash_convite, cargo_id, admin_id) VALUES (%s, %s, %s)"
-            await cursor.execute(query_insert_invite, (hash_convite, cargo_id, user.id))
-            
+            await cursor.execute(query_insert_invite, (hash_convite, alvo_cargo_id, user.id))
+
             bot_info = await context.bot.get_me()
             bot_username = bot_info.username
-            cargo = escape(str(cargo_solicitado))
 
-            mensagem = (
+            mensagem_convite = (
                 f"✅ Convite de cadastro gerado com sucesso!\n\n"
-                f"<b>Cargo:</b> {cargo}\n\n"
+                f"<b>Cargo:</b> {escape(cargo_alvo_nome)}\n\n"
                 f"Peça para o novo usuário contatar o bot @{bot_username} e enviar o seguinte comando:\n\n"
-                f"(Clique no texto abaixo para copiar 👇)\n"
-                f"<code>/novo_usuario {hash_convite}</code>")
-            
-            await message.reply_text(mensagem, parse_mode=ParseMode.HTML)
-            logger.info(f"Admin {user.id} gerou um convite para o cargo {cargo_solicitado} (ID: {cargo_id})")
+                f"<i>(Clique no texto abaixo para copiar 👇)</i>\n"
+                f"<code>/novo_usuario {hash_convite}</code>"
+            )
+            await message.reply_text(mensagem_convite, parse_mode=ParseMode.HTML)
+            logger.info(f"Usuário {user.id} ({solicitante_cargo_nome}) gerou um convite para o cargo {cargo_alvo_nome}")
 
     except Exception as e:
-        await message.reply_text("Ocorreu um erro ao processar o cadastro.")
         logger.error(f"Erro no comando /cadastrar: {e}", exc_info=True)
+        await notificar_admins(context, f"Erro no comando /cadastrar: {e}")
+        await message.reply_text("Ocorreu um erro ao processar sua solicitação de cadastro.")
     finally:
         if conexao_db:
             conexao_db.close()

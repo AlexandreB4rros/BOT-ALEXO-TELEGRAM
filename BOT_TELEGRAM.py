@@ -172,14 +172,13 @@ async def check_reconnection(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Função para centralizar e padronizar a criação de conexões com o banco de dados.
 async def criar_conexao_db():
     """Cria e retorna uma conexão assíncrona com o banco de dados."""
-    print(DB_DATABASE)
     try:
         # Carrega as credenciais do banco de dados a partir de variáveis de ambiente.
         return await aiomysql.connect(
             host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
-            db=DB_DATABASE,
+            db=os.getenv("DB_DATABASE"),
             connect_timeout=5,
             autocommit=True # Autocommit para simplificar operações
         )
