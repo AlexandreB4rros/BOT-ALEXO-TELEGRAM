@@ -29,12 +29,13 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler, JobQueue, TypeHandler)  # Componentes para construir o bot
 from telegram.error import NetworkError, Forbidden
-from Scripts_Alexo import selecionar_token, __version__
 import asyncio
 import aiofiles
 from html import escape
 from telegram.constants import ParseMode
 import httpx
+
+from Scripts_Alexo import selecionar_token, __version__
 
 caminho_env = Path(__file__).parent / ".env"
 
@@ -108,7 +109,7 @@ DBUG = 2
 # Seleciona o token do bot conforme o modo de debug
 try:
     # Tenta obter o token do bot chamando a função customizada 'selecionar_token'
-    BOT_TOKEN = selecionar_token(DBUG)
+    BOT_TOKEN, DB_DATABASE = selecionar_token(DBUG)
 except ValueError as e:
     logger.error(f"Erro: {e}")
 
@@ -172,7 +173,6 @@ async def check_reconnection(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Função para centralizar e padronizar a criação de conexões com o banco de dados.
 async def criar_conexao_db():
     """Cria e retorna uma conexão assíncrona com o banco de dados."""
-    print(DB_DATABASE)
     try:
         # Carrega as credenciais do banco de dados a partir de variáveis de ambiente.
         return await aiomysql.connect(

@@ -1,3 +1,13 @@
+# Créditos
+
+Joseph A.
+Alexandre B. 
+
+## Colaboração
+
+Josimar
+Anderson 
+
 # BOT-ALEXO-TELEGRAM
 
 ## Visão Geral
