@@ -101,7 +101,7 @@ FILENAME_WEBHOOK = ROOT_DIR / "WebHook.json"
 # Limita o traceback do Python para não exibir rastreamentos detalhados de erro
 sys.tracebacklimit = 0
 
-DBUG = 2
+DBUG = 1
 
 
 # --- Inicialização do Token do Bot ---
