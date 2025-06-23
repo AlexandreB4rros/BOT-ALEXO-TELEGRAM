@@ -1206,8 +1206,15 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # Função para enviar dados para um webhook e receber a resposta.
 async def fetch_data(webhook_link, payload):
+    """
+    Envia dados para um webhook com um timeout explícito e tratamento de erro melhorado.
+    """
+    # 1. Definir um timeout razoável (ex: 15 segundos)
+    timeout = aiohttp.ClientTimeout(total=15)
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        # 2. Aplicar o timeout à sessão
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(webhook_link, json=payload) as response:
                 response_data = await response.json()
 
@@ -1221,12 +1228,17 @@ async def fetch_data(webhook_link, payload):
                         "message": f"Erro ao conectar ao servidor: {response.reason}."
                     }
 
+    # 3. Capturar o erro de timeout especificamente
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout ao conectar a {webhook_link}")
+        return {"status": "error", "message": "O servidor demorou muito para responder. Tente novamente mais tarde."}
+    
     except aiohttp.ClientError as client_error:
         logger.error(f"Erro de cliente HTTP: {client_error}")
         return {"status": "error", "message": "Erro de comunicação com o servidor."}
 
     except Exception as e:
-        logger.error(f"/fetch_data - Exceção inesperada: {e}")
+        logger.error(f"/fetch_data - Exceção inesperada: {e}", exc_info=True)
         return {"status": "error", "message": f"Erro inesperado: {str(e)}"}
 
 

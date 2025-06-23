@@ -1328,7 +1328,6 @@ async def atividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{data.get('mensagem')}")
         logger.info(f"Atividade: {data.get('mensagem')}")
     else:
-        # Caso o status não seja "sucesso", exibe uma mensagem de erro detalhada.
         ErroWH104 = (
             "WH104.\n\n| VERIFICAR SE A SIGLA DO POP FOI INFORMADO CORRETAMENTE!"
             "\n\nCaso persistir, informar o erro à equipe interna com urgência!"
