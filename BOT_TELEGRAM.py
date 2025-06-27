@@ -843,13 +843,13 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
         
         webhook_link = await buscar_webhook_por_pop(pop)
         if not webhook_link:
-            await message.reply_text("❌ O POP informado não foi encontrado.") # Mensagem mais clara
+            await message.reply_text("❌ O POP informado não foi encontrado.")
             return
 
         olt, slot, pon = olt_slot_pon.split("/")
         payload = {"comando": "NovaCto", "olt": olt, "slot": slot, "pon": pon, "latitude": latitude, "longitude": longitude, "splitter": splitter, "id": message.chat.id}
         data = await fetch_data(webhook_link, payload)
-        await message.reply_text(data.get("mensagem", "Ocorreu um erro na resposta do servidor."))
+        await message.reply_text(data.get("confirmacao", "Ocorreu um erro na resposta do servidor."))
         return
     
     # Rota 3 (Padrão): Apenas mostra a localização que foi extraída
@@ -1209,8 +1209,8 @@ async def fetch_data(webhook_link, payload):
     """
     Envia dados para um webhook com um timeout explícito e tratamento de erro melhorado.
     """
-    # 1. Definir um timeout razoável (ex: 15 segundos)
-    timeout = aiohttp.ClientTimeout(total=15)
+    # 1. Define um timeout
+    timeout = aiohttp.ClientTimeout(total=60)
     
     try:
         # 2. Aplicar o timeout à sessão
