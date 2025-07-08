@@ -116,7 +116,7 @@ except ValueError as e:
 # --- Constantes de Mensagens ---
 
 # Define um 'set' com os valores válidos para splitters.
-SPLITTERS_VALIDOS = {"1/16", "1/8", "1/4"}
+SPLITTERS_VALIDOS = {"1/16", "1/8", "1/4", "1/2"}
 
 TELEGRAM_GROUP_ID = "-1002292627707" #GRUPO DE LOGS
 
@@ -1273,8 +1273,8 @@ async def atividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Processa a resposta do webhook.
     if data.get("status") == "sucesso":
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{data.get('mensagem')}")
-        logger.info(f"Atividade: {data.get('mensagem')}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{data.get('confirmacao')}")
+        logger.info(f"Atividade: {data.get('confirmacao')}")
     else:
         # Caso o status não seja "sucesso", exibe uma mensagem de erro detalhada.
         ErroWH104 = (
@@ -1396,10 +1396,10 @@ async def input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Validação específica para o valor do splitter.
-    splitters_validos = {"16", "8", "4"}
+    splitters_validos = {"16", "8", "4", "2"}
     splitter_final = splitter.split("/")[-1]
     if splitter_final not in splitters_validos:
-        await update.message.reply_text(text="❌ SPLITTER inválido! Use apenas 1/16, 1/8, 1/4.")
+        await update.message.reply_text(text="❌ SPLITTER inválido! Use apenas 1/16, 1/8, 1/4, 1/2.")
         return
 
     payload = {"comando": "Input", "cto": cto, "splitter": splitter_final}
@@ -1632,7 +1632,7 @@ async def listarids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = await fetch_data(webhook_link, payload)
 
     if data.get("status") == "sucesso":
-        ctos = data.get('mensagem', []) # Garante que 'ctos' seja uma lista, mesmo se a chave não existir.
+        ctos = data.get('confirmacao', []) # Garante que 'ctos' seja uma lista, mesmo se a chave não existir.
         ctos_com_contador = [f"{i+1}. {cto}" for i, cto in enumerate(ctos)]
         ctos_com_contador_str = '\n'.join(ctos_com_contador)
         await update.message.reply_text(text=f"IDs disponiveis:\n\n{ctos_com_contador_str}\n\n| Sempre use o Id da CTO de número [1]")
@@ -1670,7 +1670,7 @@ async def insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = await fetch_data(webhook_link, payload)
     
     if data.get("status") == "sucesso":
-        await update.message.reply_text(text=f"{data.get('mensagem')}")
+        await update.message.reply_text(text=f"{data.get('confirmacao')}")
     else:
         await update.message.reply_text(text=f"⚠️ Erro 3: {data.get('mensagem')}")
 
@@ -1690,7 +1690,7 @@ async def novacto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Validação específica para o valor do splitter.
-    splitters_validos = {"16", "8", "4"}
+    splitters_validos = {"16", "8", "4", "2"}
     splitter_final = splitter.split("/")[-1]
     if splitter_final not in splitters_validos:
         await update.message.reply_text(text="❌ SPLITTER inválido! Use apenas 1/16, 1/8, 1/4.")
@@ -2354,6 +2354,80 @@ async def reativar_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if conexao_db:
             conexao_db.close()
 
+#remover user
+@check_permission
+async def remover_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """(Admin/Supervisor) Remove um usuário de todos os grupos onde o bot está."""
+    message = update.message or update.edited_message
+    admin_user = update.effective_user
+
+    if not context.args or len(context.args) != 1:
+        await message.reply_text("Uso correto: <code>/remover_usuario &lt;ID_DO_USUARIO&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        user_id_alvo = int(context.args[0])
+    except ValueError:
+        await message.reply_text("❌ O ID do usuário deve ser um número.")
+        return
+
+    if user_id_alvo == admin_user.id:
+        await message.reply_text("❌ Você não pode remover a si mesmo.")
+        return
+
+    await message.reply_text(f"Iniciando processo de remoção para o usuário <code>{user_id_alvo}</code>. Isso pode levar um momento...", parse_mode=ParseMode.HTML)
+
+    conexao_db = None
+    sucessos = []
+    falhas = []
+
+    try:
+        conexao_db = await criar_conexao_db()
+        if not conexao_db:
+            await message.reply_text("❌ Erro de conexão com o banco de dados.")
+            return
+
+        async with conexao_db.cursor(aiomysql.DictCursor) as cursor:
+            # Lê a lista de grupos da tabela que você populou
+            await cursor.execute("SELECT chat_id, chat_title FROM grupos_bot")
+            grupos = await cursor.fetchall()
+
+        if not grupos:
+            await message.reply_text("⚠️ A lista de grupos do bot está vazia. Nenhum usuário pode ser removido.")
+            return
+
+        for grupo in grupos:
+            chat_id = grupo['chat_id']
+            chat_title = grupo['chat_title']
+            try:
+                # Tenta banir o membro. Banir é mais eficaz que 'kick', pois impede o retorno.
+                await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id_alvo)
+                sucessos.append(chat_title)
+            except Exception as e:
+                # Captura falhas comuns para fornecer um relatório claro
+                motivo = "Permissão negada" if "Not enough rights" in str(e) else "Usuário não encontrado no grupo" if "User not found" in str(e) else "Erro desconhecido"
+                falhas.append(f"<b>{escape(chat_title)}</b> (Motivo: {motivo})")
+
+        # Monta o relatório final para o administrador
+        relatorio = f"✅ <b>Processo de Remoção Concluído</b> ✅\n\n"
+        if sucessos:
+            lista_sucessos = '\n'.join([f"- {escape(s)}" for s in sucessos])
+            relatorio += f"Usuário removido com sucesso de <b>{len(sucessos)}</b> grupo(s):\n{lista_sucessos}\n\n"
+        if falhas:
+            lista_falhas = '\n'.join(falhas)
+            relatorio += f"Falha ao remover de <b>{len(falhas)}</b> grupo(s):\n{lista_falhas}"
+
+        await message.reply_text(relatorio, parse_mode=ParseMode.HTML)
+        logger.info(f"Usuário {admin_user.id} executou remoção em massa para o usuário {user_id_alvo}.")
+
+    except Exception as e:
+        logger.error(f"Erro crítico em /remover_usuario: {e}", exc_info=True)
+        await message.reply_text("❌ Ocorreu um erro inesperado durante o processo.")
+    finally:
+        if conexao_db:
+            conexao_db.close()
+
+
 # --- Função Principal de Execução do Bot ---
 
 def main() -> None:
@@ -2416,7 +2490,7 @@ def main() -> None:
         app.add_handler(CommandHandler("excluir_comando", excluir_comando))
         app.add_handler(CommandHandler("limpar_convites", limpar_convites))
         app.add_handler(CommandHandler("reativar_usuario", reativar_usuario))
-
+        app.add_handler(CommandHandler("remover_usuario", remover_user))
         
         # Handlers de Mensagem.
         # Handler para qualquer mensagem de localização.
