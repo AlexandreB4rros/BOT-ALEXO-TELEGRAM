@@ -849,7 +849,18 @@ async def unified_location_handler(update: Update, context: ContextTypes.DEFAULT
         olt, slot, pon = olt_slot_pon.split("/")
         payload = {"comando": "NovaCto", "olt": olt, "slot": slot, "pon": pon, "latitude": latitude, "longitude": longitude, "splitter": splitter, "id": message.chat.id}
         data = await fetch_data(webhook_link, payload)
-        await message.reply_text(data.get("confirmacao", "Ocorreu um erro na resposta do servidor."))
+        if data:
+            # Verifica se o status da resposta é "sucesso"
+            if data.get("status") == "sucesso":
+                mensagem_sucesso = data.get("confirmacao")
+                await message.reply_text(mensagem_sucesso, parse_mode=ParseMode.HTML)
+            else:
+                # Se o status for "erro" ou qualquer outra coisa, trata como um erro
+                mensagem_erro = data.get("mensagem", "Ocorreu um erro desconhecido no servidor.")
+                await message.reply_text(f"❌ **Erro:**\n`{mensagem_erro}`", parse_mode=ParseMode.HTML)
+        else:
+            await message.reply_text("❌ Não foi possível obter uma resposta do servidor. Tente novamente.")
+        
         return
     
     # Rota 3 (Padrão): Apenas mostra a localização que foi extraída
@@ -2476,7 +2487,7 @@ def main() -> None:
         # Comandos de administração
         app.add_handler(CommandHandler("AjudaAdm", ajudaadm))
         app.add_handler(CommandHandler("CWH", CWH))
-        app.add_handler(CommandHandler("AdcionarTemplate", adicionartemplate))
+        app.add_handler(CommandHandler("AdicionarTemplate", adicionartemplate))
         app.add_handler(CommandHandler("ExcluirTemplate", excluirtemplate))
         app.add_handler(CommandHandler("configdrive", configdrive))
         app.add_handler(CommandHandler("listar_admins", listar_admins))

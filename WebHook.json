@@ -265,11 +265,6 @@
         "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbx9Z-xYXky3g346-4WJvnEKbTwwfvJNSG0MOFq4VLR4tlW96MGpIMTwIy_q55IZDojl/exec"
     },
     {
-        "CIDADE": "ITU",
-        "POP": "TUI",
-        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbz67I8Q478he9d5lWDkUl344pzoPByop4lbfhzZav5RPaVtbngBfvrnueqTrdCMH4u2/exec"
-    },
-    {
         "CIDADE": "BOITUVA",
         "POP": "BTN",
         "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycby6E0EJKjBtT_yfPr1L30i52OQxPfeKcbBspBAw7UXzAUnwK_vrNB7SyyHH5wo5bFc/exec"
@@ -313,5 +308,10 @@
         "CIDADE": "SALTO",
         "POP": "SLF",
         "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbzlfoonowuQjE7LUao04YZVZBJpfrkMu3C-dOV0CBGeSnT8dz_xrpxiiuZygjxRoUz8/exec"
+    },
+    {
+        "CIDADE": "ITU",
+        "POP": "TUI",
+        "WEBHOOK_LINK": "https://script.google.com/macros/s/AKfycbx8o8hKXgNBC-UbSkbyD0-IIOyhEJRxk5rBkzc-ZjmO0P_9iuZarRub44hm4zuu1Ay3/exec"
     }
 ]
