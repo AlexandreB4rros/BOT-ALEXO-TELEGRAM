@@ -1362,7 +1362,7 @@ async def localizar_cto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = await fetch_data(webhook_link, payload)
 
     if data.get("status") == "sucesso":
-        await update.message.reply_text(text=f"{data.get('mensagem')}")
+        await update.message.reply_text(text=f"{data.get('confirmacao')}", parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text(text="⚠️ CTO NÃO ENCONTRADO!")
 
