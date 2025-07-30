@@ -14,6 +14,7 @@ from datetime import time as dt_time
 import pytz
 from pathlib import Path
 import re
+import tempfile
 
 # Importações de bibliotecas de terceiros (instaladas via pip)
 import aiohttp
@@ -95,6 +96,9 @@ __author__ = "Alexandre B, J. Ayrton"
 __credits__ = "Anderson, Josimar"
 
 ROOT_DIR = Path(__file__).parent
+DOWNLOAD_DIR = tempfile.gettempdir()
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
 # Constrói o caminho absoluto para o ficheiro JSON
 FILENAME_WEBHOOK = ROOT_DIR / "WebHook.json"
 
@@ -1067,11 +1071,18 @@ def extract_kml_from_kmz(kmz_file, extract_to):
         for file in kmz.namelist():
             if file.endswith('.kml'):
                 kmz.extract(file, extract_to)
-                kml_file = os.path.join(extract_to, file)
-                new_kml_file = os.path.join(extract_to, os.path.splitext(os.path.basename(kmz_file))[0] + '.kml')
-                os.rename(kml_file, new_kml_file)
-                return new_kml_file
+                extracted_kml_path = os.path.join(extract_to, file)
+                new_kml_path = os.path.join(
+                    extract_to, 
+                    os.path.splitext(os.path.basename(kmz_file))[0] + '.kml'
+                )
+                if os.path.exists(new_kml_path):
+                    os.remove(new_kml_path)
+                os.rename(extracted_kml_path, new_kml_path)
+                return new_kml_path
+                
     return None
+
 
 
 # Converte uma planilha (XLSX) para um arquivo KML.
@@ -1738,24 +1749,30 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('waiting_for_file', None)
     document = update.message.document
     file_name = document.file_name
+    file_path = os.path.join(DOWNLOAD_DIR, file_name)
     
     await update.message.reply_text(f"📥 Recebendo arquivo '{file_name}'... Por favor, aguarde.")
 
     try:
         file = await context.bot.get_file(document.file_id)
-        # file.download_to_drive é síncrono, precisa ser executado em uma thread.
-        await _run_blocking_io(file.download_to_drive, f"{file_name}")
-        logger.info(f"Arquivo Recebido - Arquivo:{file_name} - Usuário:{update.effective_user.first_name}")
+        
+        await file.download_to_drive(custom_path=file_path)
+        logger.info(f"Arquivo Recebido - Arquivo:{file_path} - Usuário:{update.effective_user.first_name}")
 
         xlsx_file = None
+        base_path, _ = os.path.splitext(file_path)
+        xlsx_path = base_path + '.xlsx'
+
         if file_name.endswith('.kml'):
-            xlsx_file = file_name.replace('.kml', '.xlsx')
-            await _run_blocking_io(kml_to_xlsx, file_name, xlsx_file)
+            await _run_blocking_io(kml_to_xlsx, file_path, xlsx_path)
+            xlsx_file = xlsx_path
+
         elif file_name.endswith('.kmz'):
-            kml_file = await _run_blocking_io(extract_kml_from_kmz, file_name, "")
-            if kml_file:
-                xlsx_file = kml_file.replace('.kml', '.xlsx')
-                await _run_blocking_io(kml_to_xlsx, kml_file, xlsx_file)
+            kml_file_path = await _run_blocking_io(extract_kml_from_kmz, file_path, DOWNLOAD_DIR)
+            if kml_file_path:
+                xlsx_path = kml_file_path.replace('.kml', '.xlsx')
+                await _run_blocking_io(kml_to_xlsx, kml_file_path, xlsx_path)
+                xlsx_file = xlsx_path
             else:
                 await update.message.reply_text("❌ Não foi possível extrair o arquivo KML do KMZ.")
                 return
@@ -1764,9 +1781,16 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if xlsx_file and await _run_blocking_io(os.path.exists, xlsx_file):
-            await update.message.reply_text(f"✅ Arquivo convertido para '{xlsx_file}' com sucesso!")
+            final_xlsx_name = os.path.basename(xlsx_file)
+            await update.message.reply_text(f"✅ Arquivo convertido para '{final_xlsx_name}' com sucesso!")
             async with aiofiles.open(xlsx_file, 'rb') as f:
-                await context.bot.send_document(chat_id=update.effective_chat.id, document=f)
+                file_bytes = await f.read()
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=file_bytes,
+                    filename=os.path.basename(xlsx_file)
+                )
+            logger.info(f"Arquivo convertido enviado - Arquivo:{final_xlsx_name} - Usuário:{update.effective_user.first_name}")
             
             await update.message.reply_text("Digite uma opção:\n\n[0] - Sair\n\n[1] - Salvar no drive\n[2] - Salvar no drive e inputar no template")
             context.user_data['MsgUser_ApplyPointTemplates'] = True
@@ -1774,6 +1798,7 @@ async def handle_arquivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Erro em handle_arquivo: {e}", exc_info=True)
         await update.message.reply_text("❌ Ocorreu um erro ao processar o arquivo.")
+
 
 # --- Comandos de Configuração e Manipulação de Arquivos do Drive ---
 
